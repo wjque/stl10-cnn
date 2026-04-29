@@ -9,10 +9,10 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from model.cnn import CNNFactory
-from project_2.utils.dataloader import create_dataloaders
+from utils.dataloader import create_dataloaders
 from utils.metrics import compute_metrics
 from utils.visualization import plot_training_curves, plot_tsne
 

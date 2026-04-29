@@ -58,11 +58,11 @@ class CNNFactory(nn.Module):
                 layers.append(nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=not use_bn))
                 if use_bn:
                     layers.append(nn.BatchNorm2d(out_ch))
-                layers.append(act_fn() if callable(act_fn) else act_fn)
+                layers.append(act_fn() if isinstance(act_fn, type) else act_fn)
                 layers.append(nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=not use_bn))
                 if use_bn:
                     layers.append(nn.BatchNorm2d(out_ch))
-                layers.append(act_fn() if callable(act_fn) else act_fn)
+                layers.append(act_fn() if isinstance(act_fn, type) else act_fn)
                 layers.append(pool_fn)
 
             in_ch = out_ch
