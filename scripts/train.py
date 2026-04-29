@@ -154,7 +154,9 @@ def train(config_module):
     }
 
     best_val_acc = 0.0
+    best_epoch = 0
     best_model_state = None
+    patience_counter = 0
 
     for epoch in range(1, config.num_epochs + 1):
         print(f'\n--- Epoch {epoch}/{config.num_epochs} ---')
@@ -175,10 +177,21 @@ def train(config_module):
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
+            best_epoch = epoch
             best_model_state = copy.deepcopy(model.state_dict())
+            patience_counter = 0
             print(f'  -> New best model (val_acc={best_val_acc:.4f})')
+        else:
+            patience_counter += 1
+            print(f'  -> No improvement ({patience_counter}/{config.patience})')
+
+        if patience_counter >= config.patience:
+            print(f'\nEarly stopping at epoch {epoch} (best val_acc={best_val_acc:.4f} at epoch {best_epoch})')
+            break
 
     log_data['best_val_acc'] = best_val_acc
+    log_data['best_epoch'] = best_epoch
+    log_data['stopped_epoch'] = epoch
     log_data['val_metrics'] = val_metrics
 
     model.load_state_dict(best_model_state)

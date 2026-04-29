@@ -24,6 +24,7 @@ class Config:
     momentum: float = 0.9
 
     mixup_alpha: float = 1.0
+    patience: int = 20
 
     model_save_path: str = ''
     log_save_path: str = ''
