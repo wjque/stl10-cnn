@@ -1,0 +1,135 @@
+import os
+import json
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import torch
+from sklearn.manifold import TSNE
+
+
+def plot_training_curves(log_data, save_path):
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    epochs = range(1, len(log_data['train_loss']) + 1)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    ax1.plot(epochs, log_data['train_loss'], 'b-', label='Train Loss')
+    ax1.plot(epochs, log_data['val_loss'], 'r-', label='Val Loss')
+    ax1.set_xlabel('Epoch')
+    ax1.set_ylabel('Loss')
+    ax1.set_title('Training and Validation Loss')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+
+    ax2.plot(epochs, log_data['train_acc'], 'b-', label='Train Acc')
+    ax2.plot(epochs, log_data['val_acc'], 'r-', label='Val Acc')
+    ax2.set_xlabel('Epoch')
+    ax2.set_ylabel('Accuracy')
+    ax2.set_title('Training and Validation Accuracy')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+
+    best_epoch = np.argmax(log_data['val_acc'])
+    best_acc = log_data['val_acc'][best_epoch]
+    ax2.annotate(f'Best: {best_acc:.4f} @ epoch {best_epoch + 1}',
+                 xy=(best_epoch + 1, best_acc),
+                 xytext=(best_epoch + 1, best_acc - 0.1),
+                 arrowprops=dict(arrowstyle='->', color='green'),
+                 fontsize=9, color='green')
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+
+def plot_comparison(all_logs, save_path):
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    colors = plt.cm.tab10(np.linspace(0, 1, len(all_logs)))
+
+    for (name, log_data), color in zip(all_logs.items(), colors):
+        epochs = range(1, len(log_data['train_loss']) + 1)
+        axes[0, 0].plot(epochs, log_data['val_loss'], color=color, label=name, linewidth=1.5)
+        axes[0, 1].plot(epochs, log_data['val_acc'], color=color, label=name, linewidth=1.5)
+        final_val_acc = log_data['val_acc'][-1]
+        best_val_acc = max(log_data['val_acc'])
+        axes[1, 0].bar(0, final_val_acc, label=name, color=color, alpha=0.8)
+
+    axes[0, 0].set_xlabel('Epoch')
+    axes[0, 0].set_ylabel('Val Loss')
+    axes[0, 0].set_title('Validation Loss Comparison')
+    axes[0, 0].legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+    axes[0, 0].grid(True, alpha=0.3)
+
+    axes[0, 1].set_xlabel('Epoch')
+    axes[0, 1].set_ylabel('Val Accuracy')
+    axes[0, 1].set_title('Validation Accuracy Comparison')
+    axes[0, 1].legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+    axes[0, 1].grid(True, alpha=0.3)
+
+    names = list(all_logs.keys())
+    final_accs = [log_data['val_acc'][-1] for log_data in all_logs.values()]
+    best_accs = [max(log_data['val_acc']) for log_data in all_logs.values()]
+    x = np.arange(len(names))
+    width = 0.35
+    axes[1, 0].bar(x - width / 2, final_accs, width, label='Final Acc', alpha=0.8)
+    axes[1, 0].bar(x + width / 2, best_accs, width, label='Best Acc', alpha=0.8)
+    axes[1, 0].set_xticks(x)
+    axes[1, 0].set_xticklabels(names, rotation=45, ha='right', fontsize=8)
+    axes[1, 0].set_ylabel('Accuracy')
+    axes[1, 0].set_title('Final vs Best Validation Accuracy')
+    axes[1, 0].legend()
+    axes[1, 0].grid(True, alpha=0.3, axis='y')
+
+    ax_bar = axes[1, 1]
+    test_accs = [log_data.get('test_acc', 0) for log_data in all_logs.values()]
+    bars = ax_bar.bar(x, test_accs, alpha=0.8, color=colors)
+    ax_bar.set_xticks(x)
+    ax_bar.set_xticklabels(names, rotation=45, ha='right', fontsize=8)
+    ax_bar.set_ylabel('Test Accuracy')
+    ax_bar.set_title('Test Accuracy Comparison')
+    ax_bar.grid(True, alpha=0.3, axis='y')
+    for bar, acc in zip(bars, test_accs):
+        if acc > 0:
+            ax_bar.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005,
+                       f'{acc:.3f}', ha='center', fontsize=8)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+
+
+def plot_tsne(model, dataloader, save_path, device='cpu', max_samples=1000):
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    model.eval()
+    features = []
+    labels = []
+
+    with torch.no_grad():
+        for inputs, targets in dataloader:
+            inputs = inputs.to(device)
+            feats = model.extract_features(inputs).cpu().numpy()
+            features.append(feats)
+            labels.append(targets.numpy())
+            if len(np.concatenate(labels)) >= max_samples:
+                break
+
+    features = np.concatenate(features)[:max_samples]
+    labels = np.concatenate(labels)[:max_samples]
+
+    tsne = TSNE(n_components=2, random_state=42, perplexity=30)
+    features_2d = tsne.fit_transform(features)
+
+    plt.figure(figsize=(10, 8))
+    scatter = plt.scatter(features_2d[:, 0], features_2d[:, 1], c=labels, cmap='tab10', alpha=0.6, s=15)
+    plt.colorbar(scatter, ticks=range(10))
+    plt.title('t-SNE Feature Visualization')
+    plt.xlabel('Component 1')
+    plt.ylabel('Component 2')
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
