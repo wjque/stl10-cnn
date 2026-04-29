@@ -9,25 +9,14 @@ echo ""
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
 
-if [ ! -d "venv" ]; then
-    echo "[1/5] Creating virtual environment..."
-    python3 -m venv venv
-fi
-
-echo "[1/5] Activating virtual environment..."
-source venv/bin/activate
-
-echo "[2/5] Installing dependencies..."
-pip install -r requirements.txt -q
-
 if [ ! -d "STL10/val" ]; then
-    echo "[3/5] Splitting dataset (80/20 train/val)..."
+    echo "Splitting dataset (80/20 train/val)..."
     python scripts/split.py
 else
-    echo "[3/5] Validation set already exists, skipping split."
+    echo "Validation set already exists, skipping split."
 fi
 
-echo "[4/5] Running all experiments..."
+echo "Running all experiments..."
 mkdir -p outputs/models outputs/logs outputs/figures
 
 CONFIGS=(
@@ -52,7 +41,7 @@ for cfg in "${CONFIGS[@]}"; do
 done
 
 echo ""
-echo "[5/5] Running inference on all models..."
+echo "Running inference on all models..."
 echo "========================================"
 python scripts/infer.py --all
 

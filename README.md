@@ -15,7 +15,7 @@
   - `run.sh` 一键复现所有实验
 - `./utils` 存放工具函数
   - `metrics.py` 计算各种不同的指标：准确率、召回率、F1-Score、AUC 等
-  - `split_validation.py` 为训练/验证/测试集创建 DataLoader
+  - `dataloader.py` 为训练/验证/测试集创建 DataLoader
   - `visulization.py` 用于可视化训练过程的损失曲线和准确率曲线，以及对模型提取的特征可视化以进行可解释性分析
 
 ## 使用方法
