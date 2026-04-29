@@ -6,7 +6,7 @@ from typing import Optional
 class Config:
     name: str
     seed: int = 42
-    num_epochs: int = 50
+    num_epochs: int = 500
     batch_size: int = 64
     num_workers: int = 4
 
