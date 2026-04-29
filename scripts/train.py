@@ -139,9 +139,9 @@ def train(config_module):
     if config.optimizer_name == 'sgd':
         optimizer = torch.optim.SGD(model.parameters(), lr=config.learning_rate,
                                      momentum=config.momentum, weight_decay=config.weight_decay)
-    elif config.optimizer_name == 'adam':
-        optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate,
-                                      weight_decay=config.weight_decay)
+    elif config.optimizer_name == 'adamw':
+        optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate,
+                                       weight_decay=config.weight_decay)
     else:
         raise ValueError(f'Unknown optimizer: {config.optimizer_name}')
 

@@ -90,4 +90,4 @@ python scripts/infer.py --model configs.config_01_baseline
 | 06 | Sigmoid | 随机裁剪 | 无 | 浅 | Sigmoid | Max | 无 | SGD |
 | 07 | 平均池化 | 随机裁剪 | 无 | 浅 | ReLU | Avg | 无 | SGD |
 | 08 | BatchNorm | 随机裁剪 | 无 | 浅 | ReLU | Max | 有 | SGD |
-| 09 | Adam | 随机裁剪 | 无 | 浅 | ReLU | Max | 无 | Adam |
+| 09 | AdamW | 随机裁剪 | 无 | 浅 | ReLU | Max | 无 | AdamW |

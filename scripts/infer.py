@@ -94,7 +94,7 @@ def infer_all():
     config_names = [
         '01_baseline', '02_augment', '03_mixup',
         '04_residual', '05_deep', '06_sigmoid',
-        '07_avgpool', '08_batchnorm', '09_adam',
+        '07_avgpool', '08_batchnorm', '09_adamw',
     ]
 
     all_logs = {}
