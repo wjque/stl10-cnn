@@ -8,31 +8,60 @@ import torch
 from sklearn.manifold import TSNE
 
 
-def plot_training_curves(log_data, save_path):
+def moving_average(data, window=3):
+    if len(data) < window:
+        return data
+    kernel = np.ones(window) / window
+    smoothed = np.convolve(data, kernel, mode='valid')
+    pad_left = (window - 1) // 2
+    pad_right = window - 1 - pad_left
+    padded = np.pad(smoothed, (pad_left, pad_right), mode='edge')
+    if len(padded) < len(data):
+        padded = np.pad(padded, (0, len(data) - len(padded)), mode='edge')
+    elif len(padded) > len(data):
+        padded = padded[:len(data)]
+    return padded
+
+
+def plot_training_curves(log_data, save_path, window=3):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    epochs = range(1, len(log_data['train_loss']) + 1)
+    epochs = np.arange(1, len(log_data['train_loss']) + 1)
+
+    train_loss_raw = np.array(log_data['train_loss'])
+    val_loss_raw = np.array(log_data['val_loss'])
+    train_acc_raw = np.array(log_data['train_acc'])
+    val_acc_raw = np.array(log_data['val_acc'])
+
+    train_loss_smoothed = moving_average(train_loss_raw, window)
+    val_loss_smoothed = moving_average(val_loss_raw, window)
+    train_acc_smoothed = moving_average(train_acc_raw, window)
+    val_acc_smoothed = moving_average(val_acc_raw, window)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
-    ax1.plot(epochs, log_data['train_loss'], 'b-', label='Train Loss')
-    ax1.plot(epochs, log_data['val_loss'], 'r-', label='Val Loss')
+    ax1.plot(epochs, train_loss_raw, 'b-', alpha=0.2, linewidth=0.8)
+    ax1.plot(epochs, train_loss_smoothed, 'b-', linewidth=1.8, label='Train Loss')
+    ax1.plot(epochs, val_loss_raw, 'r-', alpha=0.2, linewidth=0.8)
+    ax1.plot(epochs, val_loss_smoothed, 'r-', linewidth=1.8, label='Val Loss')
     ax1.set_xlabel('Epoch')
     ax1.set_ylabel('Loss')
-    ax1.set_title('Training and Validation Loss')
+    ax1.set_title(f'Training and Validation Loss (smoothing window={window})')
     ax1.legend()
     ax1.grid(True, alpha=0.3)
 
-    ax2.plot(epochs, log_data['train_acc'], 'b-', label='Train Acc')
-    ax2.plot(epochs, log_data['val_acc'], 'r-', label='Val Acc')
+    ax2.plot(epochs, train_acc_raw, 'b-', alpha=0.2, linewidth=0.8)
+    ax2.plot(epochs, train_acc_smoothed, 'b-', linewidth=1.8, label='Train Acc')
+    ax2.plot(epochs, val_acc_raw, 'r-', alpha=0.2, linewidth=0.8)
+    ax2.plot(epochs, val_acc_smoothed, 'r-', linewidth=1.8, label='Val Acc')
     ax2.set_xlabel('Epoch')
     ax2.set_ylabel('Accuracy')
-    ax2.set_title('Training and Validation Accuracy')
+    ax2.set_title(f'Training and Validation Accuracy (smoothing window={window})')
     ax2.legend()
     ax2.grid(True, alpha=0.3)
 
-    best_epoch = np.argmax(log_data['val_acc'])
-    best_acc = log_data['val_acc'][best_epoch]
+    best_epoch = np.argmax(val_acc_raw)
+    best_acc = val_acc_raw[best_epoch]
     ax2.annotate(f'Best: {best_acc:.4f} @ epoch {best_epoch + 1}',
                  xy=(best_epoch + 1, best_acc),
                  xytext=(best_epoch + 1, best_acc - 0.1),
@@ -44,29 +73,36 @@ def plot_training_curves(log_data, save_path):
     plt.close()
 
 
-def plot_comparison(all_logs, save_path):
+def plot_comparison(all_logs, save_path, window=3):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
     colors = plt.cm.tab10(np.linspace(0, 1, len(all_logs)))
 
     for (name, log_data), color in zip(all_logs.items(), colors):
-        epochs = range(1, len(log_data['train_loss']) + 1)
-        axes[0, 0].plot(epochs, log_data['val_loss'], color=color, label=name, linewidth=1.5)
-        axes[0, 1].plot(epochs, log_data['val_acc'], color=color, label=name, linewidth=1.5)
+        epochs = np.arange(1, len(log_data['val_loss']) + 1)
+        val_loss_raw = np.array(log_data['val_loss'])
+        val_loss_smoothed = moving_average(val_loss_raw, window)
+        val_acc_raw = np.array(log_data['val_acc'])
+        val_acc_smoothed = moving_average(val_acc_raw, window)
+
+        axes[0, 0].plot(epochs, val_loss_raw, color=color, alpha=0.15, linewidth=0.8)
+        axes[0, 0].plot(epochs, val_loss_smoothed, color=color, label=name, linewidth=1.5)
+        axes[0, 1].plot(epochs, val_acc_raw, color=color, alpha=0.15, linewidth=0.8)
+        axes[0, 1].plot(epochs, val_acc_smoothed, color=color, label=name, linewidth=1.5)
         final_val_acc = log_data['val_acc'][-1]
         best_val_acc = max(log_data['val_acc'])
         axes[1, 0].bar(0, final_val_acc, label=name, color=color, alpha=0.8)
 
     axes[0, 0].set_xlabel('Epoch')
     axes[0, 0].set_ylabel('Val Loss')
-    axes[0, 0].set_title('Validation Loss Comparison')
+    axes[0, 0].set_title(f'Validation Loss Comparison (smoothing window={window})')
     axes[0, 0].legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
     axes[0, 0].grid(True, alpha=0.3)
 
     axes[0, 1].set_xlabel('Epoch')
     axes[0, 1].set_ylabel('Val Accuracy')
-    axes[0, 1].set_title('Validation Accuracy Comparison')
+    axes[0, 1].set_title(f'Validation Accuracy Comparison (smoothing window={window})')
     axes[0, 1].legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
     axes[0, 1].grid(True, alpha=0.3)
 
