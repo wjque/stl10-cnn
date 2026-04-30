@@ -105,7 +105,7 @@ def infer_all():
     if all_logs:
         comparison_path = 'outputs/figures/comparison.png'
         plot_comparison(all_logs, comparison_path)
-        print(f'\nComparison figure saved to {comparison_path}')
+        print(f'\nComparison figures saved to outputs/figures/ (4 files)')
 
 
 if __name__ == '__main__':
