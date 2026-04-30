@@ -6,7 +6,7 @@ config = Config(
     depth='shallow',
     activation='sigmoid',
     pooling='max',
-    use_bn=False,
+    use_bn=True,
     optimizer_name='sgd',
     learning_rate=0.01,
 )
