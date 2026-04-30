@@ -4,6 +4,7 @@ import json
 import copy
 import argparse
 import importlib
+from collections import defaultdict
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,6 +14,12 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from model.cnn import CNNFactory
 from utils.dataloader import create_dataloaders
+from utils.grad_utils import (
+    compute_grad_norms,
+    accumulate_grad_norms,
+    average_grad_norms,
+    get_top_grad_norms,
+)
 from utils.metrics import compute_metrics
 from utils.visualization import plot_training_curves, plot_tsne
 
@@ -41,11 +48,13 @@ def mixup_criterion(criterion, pred, y_a, y_b, lam):
     return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
 
-def train_one_epoch(model, loader, criterion, optimizer, device, config):
+def train_one_epoch(model, loader, criterion, optimizer, device, config, log_grad_norms=False):
     model.train()
     running_loss = 0.0
     correct = 0
     total = 0
+    grad_sum = defaultdict(float)
+    grad_steps = 0
 
     pbar = tqdm(loader, desc='Training', leave=False)
     for inputs, targets in pbar:
@@ -62,6 +71,12 @@ def train_one_epoch(model, loader, criterion, optimizer, device, config):
             loss = criterion(outputs, targets)
 
         loss.backward()
+
+        if log_grad_norms:
+            batch_grad_norms = compute_grad_norms(model)
+            accumulate_grad_norms(grad_sum, batch_grad_norms)
+            grad_steps += 1
+
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         optimizer.step()
 
@@ -76,7 +91,9 @@ def train_one_epoch(model, loader, criterion, optimizer, device, config):
 
         pbar.set_postfix({'loss': f'{loss.item():.4f}', 'acc': f'{100.*correct/total:.2f}%'})
 
-    return running_loss / total, correct / total
+    epoch_grad_norms = average_grad_norms(grad_sum, grad_steps) if log_grad_norms else None
+
+    return running_loss / total, correct / total, epoch_grad_norms
 
 
 @torch.no_grad()
@@ -112,7 +129,7 @@ def evaluate(model, loader, criterion, device):
     return loss, acc, metrics
 
 
-def train(config_module):
+def train(config_module, log_grad_norms=False, grad_top_k=3):
     config = config_module.config
     set_seed(config.seed)
 
@@ -152,6 +169,8 @@ def train(config_module):
         'train_loss': [], 'train_acc': [],
         'val_loss': [], 'val_acc': [],
     }
+    if log_grad_norms:
+        log_data['train_grad_norms'] = []
 
     best_val_acc = 0.0
     best_epoch = 0
@@ -161,7 +180,9 @@ def train(config_module):
     for epoch in range(1, config.num_epochs + 1):
         print(f'\n--- Epoch {epoch}/{config.num_epochs} ---')
 
-        train_loss, train_acc = train_one_epoch(model, train_loader, criterion, optimizer, device, config)
+        train_loss, train_acc, epoch_grad_norms = train_one_epoch(
+            model, train_loader, criterion, optimizer, device, config, log_grad_norms=log_grad_norms
+        )
         val_loss, val_acc, val_metrics = evaluate(model, val_loader, criterion, device)
 
         scheduler.step()
@@ -170,10 +191,18 @@ def train(config_module):
         log_data['train_acc'].append(train_acc)
         log_data['val_loss'].append(val_loss)
         log_data['val_acc'].append(val_acc)
+        if log_grad_norms:
+            log_data['train_grad_norms'].append(epoch_grad_norms)
 
         print(f'Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f}')
         print(f'Val   Loss: {val_loss:.4f} | Val   Acc: {val_acc:.4f}')
         print(f'Val   F1: {val_metrics["f1_macro"]:.4f} | AUC: {val_metrics.get("auc_ovr", 0):.4f}')
+        if log_grad_norms and epoch_grad_norms is not None:
+            print(f'Grad L2: {epoch_grad_norms.get("global_l2", 0.0):.4e}')
+            top_grad_norms = get_top_grad_norms(epoch_grad_norms, top_k=grad_top_k)
+            if top_grad_norms:
+                top_text = ', '.join([f'{name}:{value:.4e}' for name, value in top_grad_norms])
+                print(f'Top-{grad_top_k} grad norms: {top_text}')
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
@@ -219,7 +248,9 @@ def train(config_module):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Train a model with given config')
     parser.add_argument('--config', type=str, required=True, help='Config module path (e.g., configs.config_01_baseline)')
+    parser.add_argument('--log-grad-norms', action='store_true', help='Enable per-epoch gradient norm logging')
+    parser.add_argument('--grad-top-k', type=int, default=3, help='Number of largest per-layer gradient norms to print')
     args = parser.parse_args()
 
     config_module = importlib.import_module(args.config)
-    train(config_module)
+    train(config_module, log_grad_norms=args.log_grad_norms, grad_top_k=args.grad_top_k)
