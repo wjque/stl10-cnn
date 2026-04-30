@@ -25,6 +25,7 @@
 从原始训练集中按照 80/20 的比例划分出验证集（移动文件到 `STL10/val/`）：
 
 ```bash
+cd project_2
 python scripts/split.py
 ```
 
@@ -37,9 +38,9 @@ python scripts/split.py
 ### 环境配置
 
 ```bash
-# 创建虚拟环境
-python3 -m venv venv
-source venv/bin/activate
+# 创建虚拟环境并激活
+conda create -n cnn python=3.11 -y
+conda activate cnn
 
 # 安装依赖
 pip install -r requirements.txt
@@ -48,15 +49,15 @@ pip install -r requirements.txt
 ### 一键运行所有实验
 
 ```bash
+cd project_2
 bash scripts/run.sh
 ```
 
-该脚本会自动完成：创建虚拟环境 → 安装依赖 → 训练 9 个配置 → 测试集评估 → 可视化对比。
+该脚本会自动完成：训练 9 个配置 → 测试集评估 → 可视化对比
 
 ### 单独训练某个配置
 
 ```bash
-source venv/bin/activate
 python scripts/train.py --config configs.config_01_baseline
 ```
 

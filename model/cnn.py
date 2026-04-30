@@ -24,7 +24,9 @@ class ResidualBlock(nn.Module):
 
         if stride != 1 or in_channels != out_channels:
             shortcut_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=not use_bn)
-            self._init_conv(shortcut_conv)
+            nn.init.kaiming_normal_(shortcut_conv.weight, mode='fan_in', nonlinearity='linear')
+            if shortcut_conv.bias is not None:
+                nn.init.constant_(shortcut_conv.bias, 0)
             self.shortcut = nn.Sequential(
                 shortcut_conv,
                 nn.BatchNorm2d(out_channels) if use_bn else nn.Identity(),
