@@ -21,7 +21,7 @@ from utils.grad_utils import (
     get_top_grad_norms,
 )
 from utils.metrics import compute_metrics
-from utils.visualization import plot_training_curves, plot_tsne
+from utils.visualization import plot_training_curves, plot_tsne, plot_grad_norms
 
 
 def set_seed(seed):
@@ -241,6 +241,11 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
     tsne_save_path = f'outputs/figures/{config.name}_tsne.png'
     plot_tsne(model, val_loader, tsne_save_path, device=device)
     print(f't-SNE visualization saved to {tsne_save_path}')
+
+    if log_grad_norms:
+        grad_fig_save_path = f'output/grad/{config.name}_grad_norms.png'
+        plot_grad_norms(log_data, grad_fig_save_path, top_k=grad_top_k)
+        print(f'Gradient norm visualization saved to {grad_fig_save_path}')
 
     return model, log_data
 

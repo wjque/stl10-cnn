@@ -171,3 +171,62 @@ def plot_tsne(model, dataloader, save_path, device='cpu', max_samples=1000):
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches='tight')
     plt.close()
+
+
+def plot_grad_norms(log_data, save_path, top_k=5, window=3):
+    grad_logs = log_data.get('train_grad_norms', [])
+    if not grad_logs:
+        return
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    epochs = np.arange(1, len(grad_logs) + 1)
+    global_norms = np.array([entry.get('global_l2', 0.0) for entry in grad_logs], dtype=float)
+    smoothed_global = moving_average(global_norms, window)
+
+    layer_keys = [k for k in grad_logs[0].keys() if k != 'global_l2']
+    if not layer_keys:
+        layer_keys = sorted(set().union(*[set(entry.keys()) for entry in grad_logs]))
+        layer_keys = [k for k in layer_keys if k != 'global_l2']
+
+    layer_norms = {
+        name: np.array([entry.get(name, 0.0) for entry in grad_logs], dtype=float)
+        for name in layer_keys
+    }
+
+    top_names = [
+        name for _, name in sorted(
+            [(values.mean(), name) for name, values in layer_norms.items() if values.size > 0],
+            reverse=True,
+        )
+    ][:top_k]
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    axes[0].plot(epochs, global_norms, 'b-', alpha=0.2, linewidth=0.8)
+    axes[0].plot(epochs, smoothed_global, 'b-', linewidth=1.8, label='Global L2 (epoch mean)')
+    axes[0].set_xlabel('Epoch')
+    axes[0].set_ylabel('L2 Gradient Norm')
+    axes[0].set_title(f'Gradient Global L2 (smoothing window={window})')
+    axes[0].set_yscale('log')
+    axes[0].legend()
+    axes[0].grid(True, alpha=0.3)
+
+    if top_names:
+        for name in top_names:
+            values = layer_norms[name]
+            smoothed_values = moving_average(values, window)
+            axes[1].plot(epochs, smoothed_values, linewidth=1.5, label=name)
+        axes[1].set_xlabel('Epoch')
+        axes[1].set_ylabel('L2 Gradient Norm')
+        axes[1].set_title(f'Top {len(top_names)} Layer Norms (smoothing window={window})')
+        axes[1].set_yscale('log')
+        axes[1].legend(loc='best', fontsize=7)
+        axes[1].grid(True, alpha=0.3)
+    else:
+        axes[1].text(0.5, 0.5, 'No per-layer gradient norms found',
+                     ha='center', va='center', transform=axes[1].transAxes)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
