@@ -123,7 +123,7 @@ def plot_comparison(all_logs, save_path, window=3):
     axes[1, 0].grid(True, alpha=0.3, axis='y')
 
     ax_bar = axes[1, 1]
-    test_accs = [log_data.get('test_acc', 0) for log_data in all_logs.values()]
+    test_accs = [log_data.get('test_metrics', {}).get('accuracy', 0) for log_data in all_logs.values()]
     bars = ax_bar.bar(x, test_accs, alpha=0.8, color=colors)
     ax_bar.set_xticks(x)
     ax_bar.set_xticklabels(names, rotation=45, ha='right', fontsize=8)
