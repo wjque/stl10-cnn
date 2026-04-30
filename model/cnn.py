@@ -3,10 +3,12 @@ import torch.nn as nn
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, activation='relu', use_bn=False, stride=1):
+    def __init__(self, in_channels, out_channels, activation='relu', use_bn=False, stride=1,
+                 branch_scale=1.0):
         super().__init__()
         self.use_bn = use_bn
         self.activation = activation
+        self.branch_scale = branch_scale
 
         conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=not use_bn)
         conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=not use_bn)
@@ -45,6 +47,7 @@ class ResidualBlock(nn.Module):
     def forward(self, x):
         out = self.act1(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
+        out = out * self.branch_scale
         out += self.shortcut(x)
         out = self.act2(out)
         return out
@@ -70,6 +73,9 @@ class CNNFactory(nn.Module):
         else:
             blocks_per_stage = 1 if depth in ('shallow', 'deep') else 3
 
+        total_blocks = len(channels) * blocks_per_stage
+        branch_scale = 1.0 / (total_blocks ** 0.5) if not use_bn else 1.0
+
         pool_fn = nn.MaxPool2d(2, 2) if pooling == 'max' else nn.AvgPool2d(2, 2)
 
         layers = []
@@ -78,9 +84,11 @@ class CNNFactory(nn.Module):
         for i, out_ch in enumerate(channels):
             if use_residual:
                 stride = 2 if i == 0 else 1
-                layers.append(ResidualBlock(in_ch, out_ch, activation, use_bn, stride=stride))
+                layers.append(ResidualBlock(in_ch, out_ch, activation, use_bn, stride=stride,
+                                            branch_scale=branch_scale))
                 for _ in range(blocks_per_stage - 1):
-                    layers.append(ResidualBlock(out_ch, out_ch, activation, use_bn, stride=1))
+                    layers.append(ResidualBlock(out_ch, out_ch, activation, use_bn, stride=1,
+                                                branch_scale=branch_scale))
                 layers.append(pool_fn)
             else:
                 for j in range(blocks_per_stage):
