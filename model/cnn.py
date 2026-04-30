@@ -61,14 +61,14 @@ class CNNFactory(nn.Module):
         elif depth == 'deep':
             channels = [32, 64, 128, 256, 512]
         elif depth == 'extrem_deep':
-            channels = [32, 64, 128, 256, 512]
+            channels = [64, 128, 256, 512, 512]
         else:
             raise ValueError(f"Unknown depth: {depth}")
 
         if use_residual:
-            blocks_per_stage = 2 if depth in ('shallow', 'deep') else 3
+            blocks_per_stage = 2 if depth in ('shallow', 'deep') else 5
         else:
-            blocks_per_stage = 1 if depth in ('shallow', 'deep') else 2
+            blocks_per_stage = 1 if depth in ('shallow', 'deep') else 3
 
         pool_fn = nn.MaxPool2d(2, 2) if pooling == 'max' else nn.AvgPool2d(2, 2)
 
