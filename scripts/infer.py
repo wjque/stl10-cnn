@@ -95,7 +95,8 @@ def infer_all():
         '01_baseline', '02_augment', '03_mixup',
         '04_residual', '05_deep', '06_sigmoid',
         '07_avgpool', '08_batchnorm', '09_adamw',
-        '10_deep_residual',
+        '10_ext_deep_residual',
+        '11_ext_deep',
     ]
 
     all_logs = {}

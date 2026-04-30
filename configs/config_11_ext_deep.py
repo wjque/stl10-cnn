@@ -1,9 +1,9 @@
 from configs import Config
 
 config = Config(
-    name='10_ext_deep_residual',
+    name='11_ext_deep',
     augmentation='random_crop',
-    use_residual=True,
+    use_residual=False,
     depth='extrem_deep',
     activation='relu',
     pooling='max',

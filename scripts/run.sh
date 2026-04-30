@@ -29,7 +29,8 @@ CONFIGS=(
     "07_avgpool"
     "08_batchnorm"
     "09_adamw"
-    "10_deep_residual"
+    "10_ext_deep_residual"
+    "11_ext_deep"
 )
 
 for cfg in "${CONFIGS[@]}"; do

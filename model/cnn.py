@@ -58,8 +58,17 @@ class CNNFactory(nn.Module):
 
         if depth == 'shallow':
             channels = [32, 64, 128]
-        else:
+        elif depth == 'deep':
             channels = [32, 64, 128, 256, 512]
+        elif depth == 'extrem_deep':
+            channels = [32, 64, 128, 256, 512]
+        else:
+            raise ValueError(f"Unknown depth: {depth}")
+
+        if use_residual:
+            blocks_per_stage = 2 if depth in ('shallow', 'deep') else 3
+        else:
+            blocks_per_stage = 1 if depth in ('shallow', 'deep') else 2
 
         pool_fn = nn.MaxPool2d(2, 2) if pooling == 'max' else nn.AvgPool2d(2, 2)
 
@@ -70,25 +79,28 @@ class CNNFactory(nn.Module):
             if use_residual:
                 stride = 2 if i == 0 else 1
                 layers.append(ResidualBlock(in_ch, out_ch, activation, use_bn, stride=stride))
-                layers.append(ResidualBlock(out_ch, out_ch, activation, use_bn, stride=1))
+                for _ in range(blocks_per_stage - 1):
+                    layers.append(ResidualBlock(out_ch, out_ch, activation, use_bn, stride=1))
                 layers.append(pool_fn)
             else:
-                conv1 = nn.Conv2d(in_ch, out_ch, kernel_size=3, padding=1, bias=not use_bn)
-                conv2 = nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=not use_bn)
-                self._init_conv(conv1)
-                self._init_conv(conv2)
+                for j in range(blocks_per_stage):
+                    c_in = in_ch if j == 0 else out_ch
+                    conv1 = nn.Conv2d(c_in, out_ch, kernel_size=3, padding=1, bias=not use_bn)
+                    conv2 = nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=not use_bn)
+                    self._init_conv(conv1)
+                    self._init_conv(conv2)
 
-                act1 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
-                act2 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
+                    act1 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
+                    act2 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
 
-                layers.append(conv1)
-                if use_bn:
-                    layers.append(nn.BatchNorm2d(out_ch))
-                layers.append(act1)
-                layers.append(conv2)
-                if use_bn:
-                    layers.append(nn.BatchNorm2d(out_ch))
-                layers.append(act2)
+                    layers.append(conv1)
+                    if use_bn:
+                        layers.append(nn.BatchNorm2d(out_ch))
+                    layers.append(act1)
+                    layers.append(conv2)
+                    if use_bn:
+                        layers.append(nn.BatchNorm2d(out_ch))
+                    layers.append(act2)
                 layers.append(pool_fn)
 
             in_ch = out_ch
