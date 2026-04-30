@@ -243,7 +243,7 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
     print(f't-SNE visualization saved to {tsne_save_path}')
 
     if log_grad_norms:
-        grad_fig_save_path = f'output/grad/{config.name}_grad_norms.png'
+        grad_fig_save_path = f'outputs/grad/{config.name}_grad_norms.png'
         plot_grad_norms(log_data, grad_fig_save_path, top_k=grad_top_k)
         print(f'Gradient norm visualization saved to {grad_fig_save_path}')
 
