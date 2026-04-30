@@ -62,9 +62,14 @@ def plot_training_curves(log_data, save_path, window=3):
 
     best_epoch = np.argmax(val_acc_raw)
     best_acc = val_acc_raw[best_epoch]
+    y_min, y_max = ax2.get_ylim()
+    y_range = max(y_max - y_min, 1e-8)
+    offset = y_range * 0.3
+    text_y = best_acc - offset
+    text_y = max(text_y, y_min + y_range * 0.02)
     ax2.annotate(f'Best: {best_acc:.4f} @ epoch {best_epoch + 1}',
                  xy=(best_epoch + 1, best_acc),
-                 xytext=(best_epoch + 1, best_acc - 0.1),
+                 xytext=(best_epoch + 1, text_y),
                  arrowprops=dict(arrowstyle='->', color='green'),
                  fontsize=9, color='green')
 
@@ -90,9 +95,6 @@ def plot_comparison(all_logs, save_path, window=3):
         axes[0, 0].plot(epochs, val_loss_smoothed, color=color, label=name, linewidth=1.5)
         axes[0, 1].plot(epochs, val_acc_raw, color=color, alpha=0.15, linewidth=0.8)
         axes[0, 1].plot(epochs, val_acc_smoothed, color=color, label=name, linewidth=1.5)
-        final_val_acc = log_data['val_acc'][-1]
-        best_val_acc = max(log_data['val_acc'])
-        axes[1, 0].bar(0, final_val_acc, label=name, color=color, alpha=0.8)
 
     axes[0, 0].set_xlabel('Epoch')
     axes[0, 0].set_ylabel('Val Loss')
