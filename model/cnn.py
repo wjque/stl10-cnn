@@ -34,7 +34,7 @@ class ResidualBlock(nn.Module):
 
     def _init_conv(self, m):
         if self.activation == 'relu':
-            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
         else:
             nn.init.xavier_normal_(m.weight)
         if m.bias is not None:
@@ -107,7 +107,7 @@ class CNNFactory(nn.Module):
 
     def _init_conv(self, m):
         if self.activation == 'relu':
-            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
         else:
             nn.init.xavier_normal_(m.weight)
         if m.bias is not None:
@@ -116,7 +116,7 @@ class CNNFactory(nn.Module):
     def _init_classifier(self):
         for m in self.classifier:
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
