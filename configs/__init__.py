@@ -11,7 +11,6 @@ class Config:
     num_workers: int = 4
 
     augmentation: str = 'none'
-    use_residual: bool = False
     depth: str = 'shallow'
     activation: str = 'relu'
     pooling: str = 'max'

@@ -125,7 +125,6 @@ def train(config_module):
 
     model = CNNFactory(
         num_classes=10,
-        use_residual=config.use_residual,
         depth=config.depth,
         activation=config.activation,
         pooling=config.pooling,

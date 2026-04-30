@@ -3,7 +3,6 @@ from configs import Config
 config = Config(
     name='01_baseline',
     augmentation='none',
-    use_residual=False,
     depth='shallow',
     activation='relu',
     pooling='max',

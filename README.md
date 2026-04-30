@@ -4,7 +4,7 @@
 
 - `./configs` 从以下三个角度设计不同配置
   - 数据增强：无数据增强 | 使用随机裁剪 | 使用mixup
-  - 模型结构：是否使用残差网络 / 两种模型深度 / ReLU vs Sigmoid / Max Pooling vs Avg Pooling
+  - 模型结构：两种模型深度 / ReLU vs Sigmoid / Max Pooling vs Avg Pooling
   - 正则化：是否使用 Batch Norm
   - 超参数选择：学习率 / 优化器
 - `./model` 存放不同的模型框架
@@ -81,16 +81,13 @@ python scripts/infer.py --model configs.config_01_baseline
 
 ### 实验配置列表
 
-| 编号 | 实验目的 | 数据增强 | 残差 | 深度 | 激活 | 池化 | BN | 优化器 |
-|------|---------|----------|------|------|------|------|----|--------|
-| 01 | 基线 | 无 | 无 | 浅 | ReLU | Max | 无 | SGD |
-| 02 | 数据增强 | 随机裁剪 | 无 | 浅 | ReLU | Max | 无 | SGD |
-| 03 | MixUp | MixUp | 无 | 浅 | ReLU | Max | 无 | SGD |
-| 04 | 残差网络 | 随机裁剪 | 有 | 浅 | ReLU | Max | 无 | SGD |
-| 05 | 深层网络 | 随机裁剪 | 无 | 深 | ReLU | Max | 无 | SGD |
-| 06 | Sigmoid | 随机裁剪 | 无 | 浅 | Sigmoid | Max | 无 | SGD |
-| 07 | 平均池化 | 随机裁剪 | 无 | 浅 | ReLU | Avg | 无 | SGD |
-| 08 | BatchNorm | 随机裁剪 | 无 | 浅 | ReLU | Max | 有 | SGD |
-| 09 | AdamW | 随机裁剪 | 无 | 浅 | ReLU | Max | 无 | AdamW |
-| 10 | 超深残差 | 随机裁剪 | 有 | 超深 | ReLU | Max | 无 | SGD |
-| 11 | 超深网络 | 随机裁剪 | 无 | 超深 | ReLU | Max | 无 | SGD |
+| 编号 | 实验目的 | 数据增强 | 深度 | 激活 | 池化 | BN | 优化器 |
+|------|---------|----------|------|------|------|----|--------|
+| 01 | 基线 | 无 | 浅 | ReLU | Max | 无 | SGD |
+| 02 | 数据增强 | 随机裁剪 | 浅 | ReLU | Max | 无 | SGD |
+| 03 | MixUp | MixUp | 浅 | ReLU | Max | 无 | SGD |
+| 04 | 深层网络 | 随机裁剪 | 深 | ReLU | Max | 无 | SGD |
+| 05 | Sigmoid | 随机裁剪 | 浅 | Sigmoid | Max | 无 | SGD |
+| 06 | 平均池化 | 随机裁剪 | 浅 | ReLU | Avg | 无 | SGD |
+| 07 | BatchNorm | 随机裁剪 | 浅 | ReLU | Max | 有 | SGD |
+| 08 | AdamW | 随机裁剪 | 浅 | ReLU | Max | 无 | AdamW |

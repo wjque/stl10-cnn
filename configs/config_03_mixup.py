@@ -3,7 +3,6 @@ from configs import Config
 config = Config(
     name='03_mixup',
     augmentation='mixup',
-    use_residual=False,
     depth='shallow',
     activation='relu',
     pooling='max',

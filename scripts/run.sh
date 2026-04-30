@@ -23,14 +23,11 @@ CONFIGS=(
     "01_baseline"
     "02_augment"
     "03_mixup"
-    "04_residual"
-    "05_deep"
-    "06_sigmoid"
-    "07_avgpool"
-    "08_batchnorm"
-    "09_adamw"
-    "10_ext_deep_residual"
-    "11_ext_deep"
+    "04_deep"
+    "05_sigmoid"
+    "06_avgpool"
+    "07_batchnorm"
+    "08_adamw"
 )
 
 for cfg in "${CONFIGS[@]}"; do

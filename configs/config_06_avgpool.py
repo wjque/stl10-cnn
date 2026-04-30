@@ -1,9 +1,8 @@
 from configs import Config
 
 config = Config(
-    name='07_avgpool',
+    name='06_avgpool',
     augmentation='random_crop',
-    use_residual=False,
     depth='shallow',
     activation='relu',
     pooling='avg',

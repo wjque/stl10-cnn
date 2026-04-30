@@ -1,1 +1,1 @@
-from .cnn import CNNFactory, ResidualBlock
+from .cnn import CNNFactory

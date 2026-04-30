@@ -2,59 +2,8 @@ import torch
 import torch.nn as nn
 
 
-class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, activation='relu', use_bn=False, stride=1,
-                 branch_scale=1.0):
-        super().__init__()
-        self.use_bn = use_bn
-        self.activation = activation
-        self.branch_scale = branch_scale
-
-        conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=not use_bn)
-        conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=not use_bn)
-
-        self._init_conv(conv1)
-        self._init_conv(conv2)
-        self.conv1 = conv1
-        self.conv2 = conv2
-
-        self.act1 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
-        self.act2 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
-
-        self.bn1 = nn.BatchNorm2d(out_channels) if use_bn else nn.Identity()
-        self.bn2 = nn.BatchNorm2d(out_channels) if use_bn else nn.Identity()
-
-        if stride != 1 or in_channels != out_channels:
-            shortcut_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=not use_bn)
-            nn.init.kaiming_normal_(shortcut_conv.weight, mode='fan_in', nonlinearity='linear')
-            if shortcut_conv.bias is not None:
-                nn.init.constant_(shortcut_conv.bias, 0)
-            self.shortcut = nn.Sequential(
-                shortcut_conv,
-                nn.BatchNorm2d(out_channels) if use_bn else nn.Identity(),
-            )
-        else:
-            self.shortcut = nn.Identity()
-
-    def _init_conv(self, m):
-        if self.activation == 'relu':
-            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
-        else:
-            nn.init.xavier_normal_(m.weight)
-        if m.bias is not None:
-            nn.init.constant_(m.bias, 0)
-
-    def forward(self, x):
-        out = self.act1(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
-        out = out * self.branch_scale
-        out += self.shortcut(x)
-        out = self.act2(out)
-        return out
-
-
 class CNNFactory(nn.Module):
-    def __init__(self, num_classes=10, use_residual=False, depth='shallow',
+    def __init__(self, num_classes=10, depth='shallow',
                  activation='relu', pooling='max', use_bn=False, dropout=0.5):
         super().__init__()
         self.activation = activation
@@ -63,18 +12,10 @@ class CNNFactory(nn.Module):
             channels = [32, 64, 128]
         elif depth == 'deep':
             channels = [32, 64, 128, 256, 512]
-        elif depth == 'extrem_deep':
-            channels = [64, 128, 256, 512, 512]
         else:
             raise ValueError(f"Unknown depth: {depth}")
 
-        if use_residual:
-            blocks_per_stage = 2 if depth in ('shallow', 'deep') else 5
-        else:
-            blocks_per_stage = 1 if depth in ('shallow', 'deep') else 3
-
-        total_blocks = len(channels) * blocks_per_stage
-        branch_scale = 1.0 / (total_blocks ** 0.5) if not use_bn else 1.0
+        blocks_per_stage = 1
 
         pool_fn = nn.MaxPool2d(2, 2) if pooling == 'max' else nn.AvgPool2d(2, 2)
 
@@ -82,34 +23,25 @@ class CNNFactory(nn.Module):
         in_ch = 3
 
         for i, out_ch in enumerate(channels):
-            if use_residual:
-                stride = 2 if i == 0 else 1
-                layers.append(ResidualBlock(in_ch, out_ch, activation, use_bn, stride=stride,
-                                            branch_scale=branch_scale))
-                for _ in range(blocks_per_stage - 1):
-                    layers.append(ResidualBlock(out_ch, out_ch, activation, use_bn, stride=1,
-                                                branch_scale=branch_scale))
-                layers.append(pool_fn)
-            else:
-                for j in range(blocks_per_stage):
-                    c_in = in_ch if j == 0 else out_ch
-                    conv1 = nn.Conv2d(c_in, out_ch, kernel_size=3, padding=1, bias=not use_bn)
-                    conv2 = nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=not use_bn)
-                    self._init_conv(conv1)
-                    self._init_conv(conv2)
+            for j in range(blocks_per_stage):
+                c_in = in_ch if j == 0 else out_ch
+                conv1 = nn.Conv2d(c_in, out_ch, kernel_size=3, padding=1, bias=not use_bn)
+                conv2 = nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1, bias=not use_bn)
+                self._init_conv(conv1)
+                self._init_conv(conv2)
 
-                    act1 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
-                    act2 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
+                act1 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
+                act2 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
 
-                    layers.append(conv1)
-                    if use_bn:
-                        layers.append(nn.BatchNorm2d(out_ch))
-                    layers.append(act1)
-                    layers.append(conv2)
-                    if use_bn:
-                        layers.append(nn.BatchNorm2d(out_ch))
-                    layers.append(act2)
-                layers.append(pool_fn)
+                layers.append(conv1)
+                if use_bn:
+                    layers.append(nn.BatchNorm2d(out_ch))
+                layers.append(act1)
+                layers.append(conv2)
+                if use_bn:
+                    layers.append(nn.BatchNorm2d(out_ch))
+                layers.append(act2)
+            layers.append(pool_fn)
 
             in_ch = out_ch
 

@@ -24,7 +24,6 @@ def load_model_from_log(log_path, device):
 
     model = CNNFactory(
         num_classes=10,
-        use_residual=config_dict.get('use_residual', False),
         depth=config_dict.get('depth', 'shallow'),
         activation=config_dict.get('activation', 'relu'),
         pooling=config_dict.get('pooling', 'max'),
@@ -93,10 +92,8 @@ def infer_single(config_module_path):
 def infer_all():
     config_names = [
         '01_baseline', '02_augment', '03_mixup',
-        '04_residual', '05_deep', '06_sigmoid',
-        '07_avgpool', '08_batchnorm', '09_adamw',
-        '10_ext_deep_residual',
-        '11_ext_deep',
+        '04_deep', '05_sigmoid',
+        '06_avgpool', '07_batchnorm', '08_adamw',
     ]
 
     all_logs = {}

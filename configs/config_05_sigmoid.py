@@ -1,11 +1,10 @@
 from configs import Config
 
 config = Config(
-    name='10_ext_deep_residual',
+    name='05_sigmoid',
     augmentation='random_crop',
-    use_residual=True,
-    depth='extrem_deep',
-    activation='relu',
+    depth='shallow',
+    activation='sigmoid',
     pooling='max',
     use_bn=False,
     optimizer_name='sgd',
