@@ -91,3 +91,4 @@ python scripts/infer.py --model configs.config_01_baseline
 | 07 | 平均池化 | 随机裁剪 | 无 | 浅 | ReLU | Avg | 无 | SGD |
 | 08 | BatchNorm | 随机裁剪 | 无 | 浅 | ReLU | Max | 有 | SGD |
 | 09 | AdamW | 随机裁剪 | 无 | 浅 | ReLU | Max | 无 | AdamW |
+| 10 | 深层残差 | 随机裁剪 | 有 | 深 | ReLU | Max | 无 | SGD |
