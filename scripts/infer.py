@@ -77,23 +77,20 @@ def infer(model, test_loader, device):
     return metrics
 
 
-def infer_single(config_module_path):
+def infer_single(config_name):
     """Run inference for a single experiment configuration.
 
     Args:
-        config_module_path: Dotted path to config module (e.g., 'configs.config_01_baseline').
+        config_name: Name of config module (e.g., '01_baseline').
 
     Returns:
         Tuple of (config_name, log_data_dict_or_None).
         Returns (config_name, None) if no log file is found.
     """
     print(f'\n{"="*60}')
-    print(f'Inferring: {config_module_path}')
+    print(f'Inferring: {config_name}')
 
-    # 从模块路径提取配置名（如 'config_01_baseline' -> '01_baseline'）
-    config_name = config_module_path.split('.')[-1]
-    log_path = f'outputs/logs/{config_name.replace("config_", "")}.json'
-
+    log_path = f'outputs/logs/{config_name}.json'
     if not os.path.exists(log_path):
         print(f'Log not found: {log_path}, skipping...')
         return config_name, None
@@ -121,34 +118,39 @@ def infer_single(config_module_path):
     return config_name, log_data
 
 
-def infer_all():
-    # 所有实验配置名（不含 'config_' 前缀）
-    config_names = [
-        '01_baseline', '03_adamw', '04_deep', '04_sigmoid', '04_avgpool'
-    ]
+def infer_all(args):
+    # 所有实验配置名，如 [01_baseline]
+    config_names = args.model
 
     all_logs = {}
     for name in config_names:
-        config_name, log_data = infer_single(f'configs.config_{name}')
+        config_name, log_data = infer_single(name)
         if log_data is not None:
             all_logs[config_name] = log_data
 
     # 生成所有模型的多维度对比图
     if all_logs:
-        comparison_path = 'outputs/figures/comparison.png'
+        comparison_path = f'{args.output_dir}/comparison.png'
         plot_comparison(all_logs, comparison_path)
-        print(f'\nComparison figures saved to outputs/figures/')
+        print(f'\n Comparison figures saved to {args.output_dir}')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run inference on test set')
-    parser.add_argument('--all', action='store_true', help='Run inference on all trained models')
-    parser.add_argument('--model', type=str, default=None, help='Config module path for a single model')
+    parser.add_argument(
+        '--model', type=str, nargs='+', 
+        default=None,
+        help='Config module paths for part of trained models.'
+    )
+    parser.add_argument(
+        '--output-dir', type=str,
+        default="outputs/figures",
+        help='Directory to store infer results.'
+    )
     args = parser.parse_args()
 
-    if args.all:
-        infer_all()
-    elif args.model:
-        infer_single(args.model)
+    if args.model:
+        os.makedirs(args.output_dir, exist_ok=True)
+        infer_all(args)
     else:
         parser.print_help()
