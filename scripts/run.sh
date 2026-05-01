@@ -20,14 +20,7 @@ echo "Running all experiments..."
 mkdir -p outputs/models outputs/logs outputs/figures
 
 CONFIGS=(
-    "01_baseline"
-    "02_augment"
-    "04_deep"
-    "05_sigmoid"
-    "06_avgpool"
-    "07_batchnorm"
-    "08_adamw"
-    "09_sigmoid_adamw"
+    "04_avgpool"
 )
 
 for cfg in "${CONFIGS[@]}"; do

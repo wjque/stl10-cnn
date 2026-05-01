@@ -124,9 +124,7 @@ def infer_single(config_module_path):
 def infer_all():
     # 所有实验配置名（不含 'config_' 前缀）
     config_names = [
-        '01_baseline', '02_augment',
-        '04_deep', '05_sigmoid', '06_avgpool',
-        '07_batchnorm', '08_adamw', '09_sigmoid_adamw'
+        '01_baseline', '03_adamw', '04_deep', '04_sigmoid', '04_avgpool'
     ]
 
     all_logs = {}

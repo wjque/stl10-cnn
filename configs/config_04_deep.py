@@ -2,12 +2,12 @@ from configs import Config
 
 config = Config(
     name='04_deep',
-    augmentation='random_crop',
+    augmentation='flip_h',
     depth='deep',
     activation='relu',
     pooling='max',
-    use_bn=False,
+    use_bn=True,
     dropout=0.0,
-    optimizer_name='sgd',
+    optimizer_name='adamw',
     learning_rate=0.01,
 )

@@ -1,12 +1,13 @@
 from configs import Config
 
 config = Config(
-    name='08_adamw',
-    augmentation='random_crop',
+    name='02_color_jitter',
+    augmentation='color_jitter',
     depth='shallow',
     activation='relu',
     pooling='max',
     use_bn=False,
-    optimizer_name='adamw',
-    learning_rate=0.001,
+    dropout=0.0,
+    optimizer_name='sgd',
+    learning_rate=0.01,
 )

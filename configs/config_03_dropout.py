@@ -1,12 +1,13 @@
 from configs import Config
 
 config = Config(
-    name='06_avgpool',
-    augmentation='random_crop',
+    name='03_dropout',
+    augmentation='flip_h',
     depth='shallow',
     activation='relu',
-    pooling='avg',
-    use_bn=False,
+    pooling='max',
+    use_bn=True,
+    dropout=0.5,
     optimizer_name='sgd',
     learning_rate=0.01,
 )

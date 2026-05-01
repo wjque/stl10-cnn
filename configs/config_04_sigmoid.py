@@ -1,13 +1,13 @@
 from configs import Config
 
 config = Config(
-    name='02_augment',
-    augmentation='random_crop',
+    name='04_sigmoid',
+    augmentation='flip_h',
     depth='shallow',
-    activation='relu',
+    activation='sigmoid',
     pooling='max',
-    use_bn=False,
+    use_bn=True,
     dropout=0.0,
-    optimizer_name='sgd',
+    optimizer_name='adamw',
     learning_rate=0.01,
 )
