@@ -1,12 +1,26 @@
 import os
+import sys
 import json
+import argparse
 import numpy as np
+import torch
+import torch.nn as nn
+from torchvision import transforms, datasets
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from PIL import Image
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import torch
-from sklearn.manifold import TSNE
 
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from model.cnn import CNNFactory
+
+
+MEAN = np.array([0.447, 0.440, 0.407])
+STD = np.array([0.260, 0.257, 0.276])
+
+CLASS_NAMES = ['airplane', 'bird', 'car', 'cat', 'deer', 'dog', 'horse', 'monkey', 'ship', 'truck']
 
 STYLE_CONTEXT = 'seaborn-v0_8-whitegrid'
 
@@ -55,6 +69,36 @@ def moving_average(data, window=3):
         padded = padded[:len(data)]
     return padded
 
+
+# ========== Denormalize / Model loading helpers ==========
+
+def denormalize(tensor):
+    img = tensor.cpu().numpy().transpose(1, 2, 0)
+    img = img * STD + MEAN
+    img = np.clip(img, 0, 1)
+    return (img * 255).astype(np.uint8)
+
+
+def load_model(log_path, model_path, device):
+    with open(log_path, 'r') as f:
+        log_data = json.load(f)
+    config_dict = log_data['config']
+
+    model = CNNFactory(
+        num_classes=10,
+        depth=config_dict.get('depth', 'shallow'),
+        activation=config_dict.get('activation', 'relu'),
+        pooling=config_dict.get('pooling', 'max'),
+        use_bn=config_dict.get('use_bn', False),
+        dropout=config_dict.get('dropout', 0.5),
+    ).to(device)
+
+    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    model.eval()
+    return model, config_dict
+
+
+# ========== Training Curves ==========
 
 def plot_training_curves(log_data, save_path, window=3):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -117,6 +161,8 @@ def plot_training_curves(log_data, save_path, window=3):
         plt.close()
 
 
+# ========== Model Comparison ==========
+
 def plot_comparison(all_logs, save_path, window=3):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     paths = _derive_paths(save_path)
@@ -128,7 +174,6 @@ def plot_comparison(all_logs, save_path, window=3):
     names = list(all_logs.keys())
 
     with plt.style.context(STYLE_CONTEXT):
-        # --- Figure 1: Validation Loss ---
         fig1, ax1 = plt.subplots(figsize=(12, 6))
         for (name, log_data), color in zip(all_logs.items(), colors):
             epochs = np.arange(1, len(log_data['val_loss']) + 1)
@@ -145,7 +190,6 @@ def plot_comparison(all_logs, save_path, window=3):
         fig1.savefig(paths['val_loss'], dpi=200, bbox_inches='tight')
         plt.close(fig1)
 
-        # --- Figure 2: Validation Accuracy ---
         fig2, ax2 = plt.subplots(figsize=(12, 6))
         for (name, log_data), color in zip(all_logs.items(), colors):
             epochs = np.arange(1, len(log_data['val_acc']) + 1)
@@ -163,7 +207,6 @@ def plot_comparison(all_logs, save_path, window=3):
         fig2.savefig(paths['val_acc'], dpi=200, bbox_inches='tight')
         plt.close(fig2)
 
-        # --- Figure 3: Final vs Best Accuracy ---
         fig3, ax3 = plt.subplots(figsize=(max(8, n_models * 1.6), 6))
         final_accs = [log_data['val_acc'][-1] for log_data in all_logs.values()]
         best_accs = [max(log_data['val_acc']) for log_data in all_logs.values()]
@@ -190,7 +233,6 @@ def plot_comparison(all_logs, save_path, window=3):
         fig3.savefig(paths['final_vs_best'], dpi=200, bbox_inches='tight')
         plt.close(fig3)
 
-        # --- Figure 4: Test Accuracy ---
         fig4, ax4 = plt.subplots(figsize=(max(8, n_models * 1.6), 6))
         test_accs = [log_data.get('test_metrics', {}).get('accuracy', 0)
                       for log_data in all_logs.values()]
@@ -210,6 +252,8 @@ def plot_comparison(all_logs, save_path, window=3):
         fig4.savefig(paths['test_acc'], dpi=200, bbox_inches='tight')
         plt.close(fig4)
 
+
+# ========== t-SNE ==========
 
 def plot_tsne(model, dataloader, save_path, device='cpu', max_samples=1000):
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -247,6 +291,8 @@ def plot_tsne(model, dataloader, save_path, device='cpu', max_samples=1000):
         fig.savefig(save_path, dpi=200, bbox_inches='tight')
         plt.close(fig)
 
+
+# ========== Gradient Norms ==========
 
 def plot_grad_norms(log_data, save_path, top_k=5, window=3):
     grad_logs = log_data.get('train_grad_norms', [])
@@ -309,3 +355,279 @@ def plot_grad_norms(log_data, save_path, top_k=5, window=3):
         fig.tight_layout()
         fig.savefig(save_path, dpi=200, bbox_inches='tight')
         plt.close(fig)
+        
+
+# ========== PCA Visualization ==========
+
+def pca_heatmap(features, seed=42):
+    C, H, W = features.shape
+    feat_2d = features.reshape(C, -1).permute(1, 0).cpu().numpy()
+    pca = PCA(n_components=3, random_state=seed)
+    pca.fit(feat_2d)
+    projected = pca.transform(feat_2d)
+
+    for c in range(3):
+        ch = projected[:, c]
+        ch_min, ch_max = ch.min(), ch.max()
+        if ch_max > ch_min:
+            projected[:, c] = (ch - ch_min) / (ch_max - ch_min)
+        else:
+            projected[:, c] = 0.5
+
+    heatmap = projected.reshape(H, W, 3)
+    heatmap_uint8 = (heatmap * 255).astype(np.uint8)
+    return heatmap_uint8, pca.explained_variance_ratio_
+
+
+def generate_pca_visualization(model_name, model, train_dir, save_dir, device, n_samples_per_class=1, seed=42):
+    eval_transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=MEAN.tolist(), std=STD.tolist()),
+    ])
+
+    dataset = datasets.ImageFolder(train_dir, transform=eval_transform)
+    classes = dataset.classes
+    n_classes = len(classes)
+
+    rng = np.random.RandomState(seed)
+
+    samples = []
+    for cls_idx in range(n_classes):
+        cls_indices = [i for i, (_, label) in enumerate(dataset.samples) if label == cls_idx]
+        chosen = rng.choice(cls_indices, size=n_samples_per_class, replace=False)
+        for idx in chosen:
+            samples.append((idx, cls_idx))
+
+    with torch.no_grad():
+        for idx, cls_idx in samples:
+            img, _ = dataset[idx]
+            inp = img.unsqueeze(0).to(device)
+            stage_features = model.extract_stage_features(inp)
+            cls_name = classes[cls_idx]
+
+            orig = denormalize(img)
+            stage_imgs = [(96, 96, Image.fromarray(orig))]
+
+            for stage_idx, feat in enumerate(stage_features):
+                feat_cpu = feat[0].cpu()
+                C, H, W = feat_cpu.shape
+                heatmap_data, explained_var = pca_heatmap(feat_cpu, seed=seed)
+                heatmap_img = Image.fromarray(heatmap_data)
+                stage_imgs.append((H, W, heatmap_img))
+
+            cls_save_dir = os.path.join(save_dir, cls_name)
+            os.makedirs(cls_save_dir, exist_ok=True)
+
+            for row_idx, (h, w, pil_img) in enumerate(stage_imgs):
+                label = 'orig' if row_idx == 0 else f'stage{row_idx - 1}'
+                pil_img.save(os.path.join(cls_save_dir, f'{model_name}_{label}.png'))
+
+            max_h = 96
+            total_w = sum(w for w, _, _ in stage_imgs) + 4 * len(stage_imgs)
+            combined = Image.new('RGB', (total_w, max_h))
+            x_offset = 0
+            for h, w, pil_img in stage_imgs:
+                if h != max_h:
+                    pil_resized = pil_img.resize((int(w * max_h / h), max_h), Image.BILINEAR)
+                else:
+                    pil_resized = pil_img
+                combined.paste(pil_resized, (x_offset, 0))
+                x_offset += pil_resized.width + 4
+
+            combined.save(os.path.join(cls_save_dir, f'{model_name}_stages.png'))
+
+    print(f'PCA visualization for {model_name} saved to {save_dir}')
+
+
+# ========== Confusion Matrix ==========
+
+def plot_confusion_matrix(cm, model_name, save_path, normalize=True):
+    if normalize:
+        cm_norm = cm.astype(float)
+        for i in range(cm_norm.shape[0]):
+            row_sum = cm_norm[i].sum()
+            if row_sum > 0:
+                cm_norm[i] = cm_norm[i] / row_sum
+        title = f'{model_name}'
+        fmt = '.2f'
+        vmax = 1.0
+    else:
+        cm_norm = cm
+        title = f'{model_name}'
+        fmt = 'd'
+        vmax = cm.max()
+
+    with plt.style.context(STYLE_CONTEXT):
+        fig, ax = plt.subplots(figsize=(7, 6))
+        im = ax.imshow(cm_norm, cmap='Blues', vmin=0, vmax=vmax)
+
+        for i in range(cm_norm.shape[0]):
+            for j in range(cm_norm.shape[1]):
+                if normalize:
+                    text = f'{cm_norm[i, j]:.2f}'
+                else:
+                    text = f'{cm[i, j]}'
+                text_color = 'white' if cm_norm[i, j] > vmax * 0.6 else 'black'
+                ax.text(j, i, text, ha='center', va='center', fontsize=7, color=text_color)
+
+        ax.set_xticks(range(10))
+        ax.set_yticks(range(10))
+        ax.set_xticklabels(CLASS_NAMES, rotation=45, ha='right', fontsize=8)
+        ax.set_yticklabels(CLASS_NAMES, fontsize=8)
+        ax.set_xlabel('Predicted', fontsize=10)
+        ax.set_ylabel('True', fontsize=10)
+        ax.set_title(title, fontweight='bold', fontsize=11)
+
+        cbar = plt.colorbar(im, ax=ax, shrink=0.85)
+        cbar.set_label('Fraction' if normalize else 'Count', fontsize=9)
+
+        fig.tight_layout()
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        fig.savefig(save_path, dpi=200, bbox_inches='tight')
+        plt.close(fig)
+
+
+# ======================================================================
+#  Unified CLI entry point
+# ======================================================================
+
+def _main_pca(args):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f'Using device: {device}')
+
+    for model_name in args.model:
+        log_path = f'outputs/logs/{model_name}.json'
+        model_path = f'outputs/models/{model_name}.pth'
+
+        if not os.path.exists(log_path) or not os.path.exists(model_path):
+            print(f'Skipping {model_name}: log or model not found')
+            continue
+
+        model, config_dict = load_model(log_path, model_path, device)
+        save_dir = f'outputs/figures/pca/{model_name}'
+        generate_pca_visualization(
+            model_name, model, args.train_dir, save_dir, device,
+            n_samples_per_class=1, seed=args.seed
+        )
+
+
+def _main_cm(args):
+    for model_name in args.model:
+        log_path = f'outputs/logs/{model_name}.json'
+        if not os.path.exists(log_path):
+            print(f'Skipping {model_name}: log not found')
+            continue
+
+        with open(log_path) as f:
+            data = json.load(f)
+
+        cm = data.get('test_metrics', {}).get('confusion_matrix', [])
+        if len(cm) == 0:
+            print(f'Skipping {model_name}: no confusion matrix')
+            continue
+
+        cm = np.array(cm)
+        save_path = f'outputs/figures/{model_name}_confusion.png'
+        plot_confusion_matrix(cm, model_name, save_path, normalize=True)
+        print(f'Confusion matrix for {model_name} saved.')
+
+    print('Done.')
+
+
+def _main_train(args):
+    log_path = f'outputs/logs/{args.model}.json'
+    if not os.path.exists(log_path):
+        print(f'Log not found: {log_path}')
+        return
+
+    with open(log_path) as f:
+        log_data = json.load(f)
+
+    save_path = f'outputs/figures/{args.model}_training.png'
+    plot_training_curves(log_data, save_path, window=args.window)
+    print(f'Training curves saved to {save_path}')
+
+
+def _main_compare(args):
+    all_logs = {}
+    for model_name in args.models:
+        log_path = f'outputs/logs/{model_name}.json'
+        if not os.path.exists(log_path):
+            print(f'Skipping {model_name}: log not found')
+            continue
+        with open(log_path) as f:
+            log_data = json.load(f)
+        all_logs[model_name] = log_data
+
+    if not all_logs:
+        print('No valid logs found.')
+        return
+
+    plot_comparison(all_logs, args.output, window=args.window)
+    print(f'Comparison plots saved to {args.output}*')
+
+
+def _main_grad(args):
+    log_path = f'outputs/logs/{args.model}.json'
+    if not os.path.exists(log_path):
+        print(f'Log not found: {log_path}')
+        return
+
+    with open(log_path) as f:
+        log_data = json.load(f)
+
+    save_path = f'outputs/figures/{args.model}_grad_norms.png'
+    plot_grad_norms(log_data, save_path, top_k=args.top_k, window=args.window)
+    print(f'Gradient norm plots saved to {save_path}')
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Visualization utilities')
+    subparsers = parser.add_subparsers(dest='mode', help='Visualization mode')
+
+    pca = subparsers.add_parser('pca', help='PCA feature visualization (all stages)')
+    pca.add_argument('--train-dir', type=str, default='STL10/train', help='Training data directory')
+    pca.add_argument('--model', type=str, nargs='+',
+                     default=['01_baseline', '08_adamw'],
+                     help='Model names to visualize')
+    pca.add_argument('--seed', type=int, default=42)
+
+    cm = subparsers.add_parser('cm', help='Confusion matrix visualization')
+    cm.add_argument('--model', type=str, nargs='+',
+                    default=['01_baseline', '08_adamw', '04_deep', '05_sigmoid'],
+                    help='Model names to visualize')
+
+    train = subparsers.add_parser('train', help='Plot training curves for a single model')
+    train.add_argument('--model', type=str, required=True, help='Model name')
+    train.add_argument('--window', type=int, default=3, help='Smoothing window size')
+
+    compare = subparsers.add_parser('compare', help='Compare multiple models')
+    compare.add_argument('--models', type=str, nargs='+', required=True,
+                         help='Model names to compare')
+    compare.add_argument('--output', type=str, default='outputs/figures/comparison',
+                         help='Output path prefix')
+    compare.add_argument('--window', type=int, default=3, help='Smoothing window size')
+
+    grad = subparsers.add_parser('grad', help='Plot gradient norms')
+    grad.add_argument('--model', type=str, required=True, help='Model name')
+    grad.add_argument('--top-k', type=int, default=5, help='Number of top layers to show')
+    grad.add_argument('--window', type=int, default=3, help='Smoothing window size')
+
+    args = parser.parse_args()
+
+    if args.mode == 'pca':
+        _main_pca(args)
+    elif args.mode == 'cm':
+        _main_cm(args)
+    elif args.mode == 'train':
+        _main_train(args)
+    elif args.mode == 'compare':
+        _main_compare(args)
+    elif args.mode == 'grad':
+        _main_grad(args)
+    else:
+        parser.print_help()
+
+
+if __name__ == '__main__':
+    main()

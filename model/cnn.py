@@ -83,3 +83,12 @@ class CNNFactory(nn.Module):
         x = self.features(x)
         x = self.avgpool(x)
         return x.view(x.size(0), -1)
+
+    def extract_stage_features(self, x):
+        stage_outputs = []
+        current = x
+        for module in self.features:
+            current = module(current)
+            if isinstance(module, (nn.MaxPool2d, nn.AvgPool2d)):
+                stage_outputs.append(current)
+        return stage_outputs
