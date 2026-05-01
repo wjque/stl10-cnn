@@ -22,7 +22,6 @@ mkdir -p outputs/models outputs/logs outputs/figures
 CONFIGS=(
     "01_baseline"
     "02_augment"
-    "03_mixup"
     "04_deep"
     "05_sigmoid"
     "06_avgpool"

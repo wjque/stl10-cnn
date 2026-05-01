@@ -16,13 +16,12 @@ class Config:
     pooling: str = 'max'
     use_bn: bool = False
 
-    dropout: float = 0.5
+    dropout: float = 0.0
     optimizer_name: str = 'sgd'
     learning_rate: float = 0.01
     weight_decay: float = 1e-4
     momentum: float = 0.9
 
-    mixup_alpha: float = 1.0
     patience: int = 20
 
     model_save_path: str = ''

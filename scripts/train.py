@@ -8,6 +8,8 @@ from collections import defaultdict
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
 from tqdm import tqdm
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
@@ -25,50 +27,98 @@ from utils.visualization import plot_training_curves, plot_tsne, plot_grad_norms
 
 
 def set_seed(seed):
+    """Fix random seeds for reproducibility across numpy, torch, and CUDA."""
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
+    
+    
+def create_dataloaders(config, data_dir='STL10'):
+    """
+    Args:
+        config: Config dataclass with batch_size, num_workers, augmentation.
+        data_dir: Root directory containing train/val/test subfolders.
 
+    Returns:
+        Tuple of (train_loader, val_loader, test_loader, class_names).
+    """
+    train_dir = os.path.join(data_dir, 'train')
+    val_dir = os.path.join(data_dir, 'val')
+    test_dir = os.path.join(data_dir, 'test')
 
-def mixup_data(x, y, alpha=1.0):
-    if alpha > 0:
-        lam = np.random.beta(alpha, alpha)
+    # 训练集的数据预处理：根据 augmentation 配置决定是否使用数据增强
+    if config.augmentation == 'random_crop':
+        # 使用随机裁剪 + 水平翻转 + 颜色抖动进行数据增强
+        train_transform = transforms.Compose([
+            transforms.RandomResizedCrop(96, scale=(0.8, 1.0)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.447, 0.440, 0.407], std=[0.260, 0.257, 0.276]),
+        ])
     else:
-        lam = 1.0
-    batch_size = x.size(0)
-    index = torch.randperm(batch_size, device=x.device)
-    mixed_x = lam * x + (1 - lam) * x[index]
-    y_a, y_b = y, y[index]
-    return mixed_x, y_a, y_b, lam
+        # 不做数据增强，仅做归一化
+        train_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.447, 0.440, 0.407], std=[0.260, 0.257, 0.276]),
+        ])
 
+    # 验证集和测试集使用相同的预处理（不做增强）
+    eval_transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.447, 0.440, 0.407], std=[0.260, 0.257, 0.276]),
+    ])
 
-def mixup_criterion(criterion, pred, y_a, y_b, lam):
-    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
+    # 使用 ImageFolder 从目录结构自动加载图像和标签
+    train_dataset = datasets.ImageFolder(train_dir, transform=train_transform)
+
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True,
+                              num_workers=config.num_workers, pin_memory=True)
+
+    val_dataset = datasets.ImageFolder(val_dir, transform=eval_transform)
+    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False,
+                            num_workers=config.num_workers, pin_memory=True)
+
+    test_dataset = datasets.ImageFolder(test_dir, transform=eval_transform)
+    test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False,
+                             num_workers=config.num_workers, pin_memory=True)
+
+    return train_loader, val_loader, test_loader, train_dataset.classes
 
 
 def train_one_epoch(model, loader, criterion, optimizer, device, config, log_grad_norms=False):
+    """Run a single training epoch.
+
+    Args:
+        model: The CNN model in training mode.
+        loader: Training DataLoader.
+        criterion: Loss function (CrossEntropyLoss).
+        optimizer: torch optimizer (SGD or AdamW).
+        device: 'cuda' or 'cpu'.
+        config: Experiment configuration dataclass.
+        log_grad_norms: If True, accumulate per-layer gradient L2 norms.
+
+    Returns:
+        Tuple of (average_loss, accuracy, gradient_norms_dict_or_None).
+    """
     model.train()
     running_loss = 0.0
     correct = 0
     total = 0
-    grad_sum = defaultdict(float)
+    grad_sum = defaultdict(float)  # 累积各层梯度 L2 范数
     grad_steps = 0
 
     pbar = tqdm(loader, desc='Training', leave=False)
     for inputs, targets in pbar:
         inputs, targets = inputs.to(device), targets.to(device)
 
-        if config.augmentation == 'mixup':
-            inputs, targets_a, targets_b, lam = mixup_data(inputs, targets, config.mixup_alpha)
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = mixup_criterion(criterion, outputs, targets_a, targets_b, lam)
-        else:
-            optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
+        # 标准训练步骤
+        # 清零梯度 -> 前向 -> 计算损失 -> 反向传播 -> 梯度裁剪 -> 更新参数
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
 
         loss.backward()
 
@@ -77,17 +127,15 @@ def train_one_epoch(model, loader, criterion, optimizer, device, config, log_gra
             accumulate_grad_norms(grad_sum, batch_grad_norms)
             grad_steps += 1
 
+        # 防止梯度爆炸
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         optimizer.step()
 
+        # 累加损失和正确预测数
         running_loss += loss.item() * inputs.size(0)
         _, predicted = outputs.max(1)
         total += targets.size(0)
-        if config.augmentation == 'mixup':
-            correct += (lam * predicted.eq(targets_a).float() +
-                       (1 - lam) * predicted.eq(targets_b).float()).sum().item()
-        else:
-            correct += predicted.eq(targets).sum().item()
+        correct += predicted.eq(targets).sum().item()
 
         pbar.set_postfix({'loss': f'{loss.item():.4f}', 'acc': f'{100.*correct/total:.2f}%'})
 
@@ -98,12 +146,24 @@ def train_one_epoch(model, loader, criterion, optimizer, device, config, log_gra
 
 @torch.no_grad()
 def evaluate(model, loader, criterion, device):
+    """Evaluate the model on validation or test set.
+
+    Args:
+        model: The CNN model in eval mode.
+        loader: Validation / test DataLoader.
+        criterion: Loss function.
+        device: 'cuda' or 'cpu'.
+
+    Returns:
+        Tuple of (average_loss, accuracy, metrics_dict).
+        metrics_dict includes accuracy, precision, recall, f1, confusion_matrix, etc.
+    """
     model.eval()
     running_loss = 0.0
     correct = 0
     total = 0
-    all_scores = []
-    all_targets = []
+    all_scores = []   # 存储每个 batch 的 softmax 输出
+    all_targets = []  # 存储真实标签
 
     for inputs, targets in tqdm(loader, desc='Evaluating', leave=False):
         inputs, targets = inputs.to(device), targets.to(device)
@@ -124,22 +184,35 @@ def evaluate(model, loader, criterion, device):
     all_targets = np.concatenate(all_targets)
     all_preds = all_scores.argmax(axis=1)
 
+    # 计算多分类指标：准确率、精确率、召回率、F1、AUC、混淆矩阵等
     metrics = compute_metrics(all_targets, all_preds, all_scores)
 
     return loss, acc, metrics
 
 
 def train(config_module, log_grad_norms=False, grad_top_k=3):
+    """
+    Args:
+        config_module: Imported Python module whose .config attribute holds
+                       a Config dataclass instance.
+        log_grad_norms: Whether to record per-layer gradient norms each epoch.
+        grad_top_k: Print the top-k largest gradient norms per epoch.
+
+    Returns:
+        Tuple of (trained_model, log_data_dict).
+    """
     config = config_module.config
-    set_seed(config.seed)
+    set_seed(config.seed)  # 固定随机种子保证可复现
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device: {device}')
     print(f'Config: {config.name}')
 
+    # 创建训练/验证/测试 DataLoader
     train_loader, val_loader, test_loader, classes = create_dataloaders(config)
     print(f'Train: {len(train_loader.dataset)}, Val: {len(val_loader.dataset)}, Test: {len(test_loader.dataset)}')
 
+    # 根据配置构建 CNN 模型
     model = CNNFactory(
         num_classes=10,
         depth=config.depth,
@@ -153,6 +226,7 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
 
     criterion = nn.CrossEntropyLoss()
 
+    # 选择优化器：SGD (带动量) 或 AdamW (动量 + 自适应梯度调节 + 权重衰减)
     if config.optimizer_name == 'sgd':
         optimizer = torch.optim.SGD(model.parameters(), lr=config.learning_rate,
                                      momentum=config.momentum, weight_decay=config.weight_decay)
@@ -162,8 +236,10 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
     else:
         raise ValueError(f'Unknown optimizer: {config.optimizer_name}')
 
+    # 使用余弦退火学习率调度器
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.num_epochs)
 
+    # 初始化日志数据结构
     log_data = {
         'config': {k: v for k, v in config.__dict__.items()},
         'train_loss': [], 'train_acc': [],
@@ -172,11 +248,13 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
     if log_grad_norms:
         log_data['train_grad_norms'] = []
 
+    # Early stopping 相关变量
     best_val_acc = 0.0
     best_epoch = 0
     best_model_state = None
     patience_counter = 0
 
+    # Training loop!
     for epoch in range(1, config.num_epochs + 1):
         print(f'\n--- Epoch {epoch}/{config.num_epochs} ---')
 
@@ -185,8 +263,9 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
         )
         val_loss, val_acc, val_metrics = evaluate(model, val_loader, criterion, device)
 
-        scheduler.step()
+        scheduler.step()  # 每个 epoch 结束后更新学习率
 
+        # 记录本轮指标
         log_data['train_loss'].append(train_loss)
         log_data['train_acc'].append(train_acc)
         log_data['val_loss'].append(val_loss)
@@ -204,6 +283,7 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
                 top_text = ', '.join([f'{name}:{value:.4e}' for name, value in top_grad_norms])
                 print(f'Top-{grad_top_k} grad norms: {top_text}')
 
+        # Early stopping 判断
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_epoch = epoch
@@ -218,30 +298,37 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
             print(f'\nEarly stopping at epoch {epoch} (best val_acc={best_val_acc:.4f} at epoch {best_epoch})')
             break
 
+    # 保存最佳模型的相关信息
     log_data['best_val_acc'] = best_val_acc
     log_data['best_epoch'] = best_epoch
     log_data['stopped_epoch'] = epoch
     log_data['val_metrics'] = val_metrics
 
+    # 恢复最佳模型权重
     model.load_state_dict(best_model_state)
 
+    # 保存模型权重
     os.makedirs(os.path.dirname(config.model_save_path), exist_ok=True)
     torch.save(model.state_dict(), config.model_save_path)
     print(f'\nModel saved to {config.model_save_path}')
 
+    # 保存训练日志（JSON 格式）
     os.makedirs(os.path.dirname(config.log_save_path), exist_ok=True)
     with open(config.log_save_path, 'w') as f:
         json.dump(log_data, f, indent=2, default=lambda x: x.tolist() if hasattr(x, 'tolist') else str(x))
     print(f'Log saved to {config.log_save_path}')
 
+    # 绘制并保存训练曲线（loss / accuracy）
     fig_save_path = f'outputs/figures/{config.name}_curves.png'
     plot_training_curves(log_data, fig_save_path)
     print(f'Training curves saved to {fig_save_path}')
 
+    # 绘制并保存 t-SNE 特征可视化，定性判断分类器性能
     tsne_save_path = f'outputs/figures/{config.name}_tsne.png'
     plot_tsne(model, val_loader, tsne_save_path, device=device)
     print(f't-SNE visualization saved to {tsne_save_path}')
 
+    # Optional: 绘制梯度范数变化图，观察梯度衰减情况
     if log_grad_norms:
         grad_fig_save_path = f'outputs/grad/{config.name}_grad_norms.png'
         plot_grad_norms(log_data, grad_fig_save_path, top_k=grad_top_k)

@@ -3,7 +3,7 @@
 ## 项目框架
 
 - `./configs` 从以下三个角度设计不同配置
-  - 数据增强：无数据增强 | 使用随机裁剪 | 使用mixup
+  - 数据增强：无数据增强 | 使用随机裁剪
   - 模型结构：两种模型深度 / ReLU vs Sigmoid / Max Pooling vs Avg Pooling
   - 正则化：是否使用 Batch Norm
   - 超参数选择：学习率 / 优化器
@@ -53,7 +53,7 @@ cd project_2
 bash scripts/run.sh
 ```
 
-该脚本会自动完成：训练 9 个配置 → 测试集评估 → 可视化对比
+该脚本会自动完成：训练 8 个配置 → 测试集评估 → 可视化对比
 
 ### 单独训练某个配置
 
@@ -85,7 +85,6 @@ python scripts/infer.py --model configs.config_01_baseline
 |------|---------|----------|------|------|------|----|--------|
 | 01 | 基线 | 无 | 浅 | ReLU | Max | 无 | SGD |
 | 02 | 数据增强 | 随机裁剪 | 浅 | ReLU | Max | 无 | SGD |
-| 03 | MixUp | MixUp | 浅 | ReLU | Max | 无 | SGD |
 | 04 | 深层网络 | 随机裁剪 | 深 | ReLU | Max | 无 | SGD |
 | 05 | Sigmoid | 随机裁剪 | 浅 | Sigmoid | Max | 无 | SGD |
 | 06 | 平均池化 | 随机裁剪 | 浅 | ReLU | Avg | 无 | SGD |

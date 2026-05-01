@@ -17,11 +17,21 @@ from configs import Config
 
 
 def load_model_from_log(log_path, device):
+    """
+    Args:
+        log_path: Path to the JSON log file (e.g., outputs/logs/01_baseline.json).
+        device: 'cuda' or 'cpu'.
+
+    Returns:
+        Tuple of (model, log_data_dict).
+    """
     with open(log_path, 'r') as f:
         log_data = json.load(f)
-    config_dict = log_data['config']
+    config_dict = log_data['config']  # 训练时保存的配置字典
+    # 模型权重文件路径
     model_path = config_dict.get('model_save_path', log_path.replace('logs', 'models').replace('.json', '.pth'))
 
+    # 使用与训练时相同的架构参数重建 CNN
     model = CNNFactory(
         num_classes=10,
         depth=config_dict.get('depth', 'shallow'),
@@ -38,9 +48,19 @@ def load_model_from_log(log_path, device):
 
 @torch.no_grad()
 def infer(model, test_loader, device):
+    """Run inference on the test set and compute evaluation metrics.
+
+    Args:
+        model: Trained CNN model in eval mode.
+        test_loader: Test DataLoader.
+        device: 'cuda' or 'cpu'.
+
+    Returns:
+        Dict of classification metrics (accuracy, precision, recall, f1, auc, confusion_matrix).
+    """
     model.eval()
-    all_scores = []
-    all_targets = []
+    all_scores = []   # softmax 概率输出
+    all_targets = []  # 真实标签
 
     for inputs, targets in tqdm(test_loader, desc='Inference'):
         inputs = inputs.to(device)
@@ -48,6 +68,7 @@ def infer(model, test_loader, device):
         all_scores.append(outputs.softmax(dim=1).cpu().numpy())
         all_targets.append(targets.numpy())
 
+    # 拼接所有 batch 的结果
     all_scores = np.concatenate(all_scores)
     all_targets = np.concatenate(all_targets)
     all_preds = all_scores.argmax(axis=1)
@@ -57,9 +78,19 @@ def infer(model, test_loader, device):
 
 
 def infer_single(config_module_path):
+    """Run inference for a single experiment configuration.
+
+    Args:
+        config_module_path: Dotted path to config module (e.g., 'configs.config_01_baseline').
+
+    Returns:
+        Tuple of (config_name, log_data_dict_or_None).
+        Returns (config_name, None) if no log file is found.
+    """
     print(f'\n{"="*60}')
     print(f'Inferring: {config_module_path}')
 
+    # 从模块路径提取配置名（如 'config_01_baseline' -> '01_baseline'）
     config_name = config_module_path.split('.')[-1]
     log_path = f'outputs/logs/{config_name.replace("config_", "")}.json'
 
@@ -70,6 +101,7 @@ def infer_single(config_module_path):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model, log_data = load_model_from_log(log_path, device)
+    # 用日志中的配置重建 Config 对象以创建 DataLoader
     config = Config(**log_data['config'])
     _, _, test_loader, _ = create_dataloaders(config)
 
@@ -90,9 +122,10 @@ def infer_single(config_module_path):
 
 
 def infer_all():
+    # 所有实验配置名（不含 'config_' 前缀）
     config_names = [
-        '01_baseline', '02_augment', '03_mixup',
-        '04_deep', '05_sigmoid', '06_avgpool', 
+        '01_baseline', '02_augment',
+        '04_deep', '05_sigmoid', '06_avgpool',
         '07_batchnorm', '08_adamw', '09_sigmoid_adamw'
     ]
 
@@ -102,10 +135,11 @@ def infer_all():
         if log_data is not None:
             all_logs[config_name] = log_data
 
+    # 生成所有模型的多维度对比图
     if all_logs:
         comparison_path = 'outputs/figures/comparison.png'
         plot_comparison(all_logs, comparison_path)
-        print(f'\nComparison figures saved to outputs/figures/ (4 files)')
+        print(f'\nComparison figures saved to outputs/figures/')
 
 
 if __name__ == '__main__':
