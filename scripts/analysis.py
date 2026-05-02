@@ -7,6 +7,8 @@ Usage (CLI):
     python scripts/analysis.py grad   --model 01_baseline
     python scripts/analysis.py pca --model 01_baseline 02_flip_h
     python scripts/analysis.py train --model 01_baseline
+    python scripts/analysis.py table --model 01_baseline 03_adamw \\
+        --metrics accuracy f1_macro auc_ovr --source test_metrics
 
 Usage (programmatic):
     from scripts.analysis import parse_args, run_pca, run_cm, ...
@@ -45,7 +47,7 @@ def parse_args(argv=None):
 
     parser.add_argument(
         'mode',
-        choices=['pca', 'cm', 'train', 'compare', 'grad'],
+        choices=['pca', 'cm', 'train', 'compare', 'grad', 'table'],
         help='Analysis mode to run',
     )
     parser.add_argument(
@@ -79,6 +81,23 @@ def parse_args(argv=None):
     parser.add_argument(
         '--top-k', type=int, default=3,
         help='Number of top layers to show when use grad mode.',
+    )
+
+    # extra args for table mode
+    parser.add_argument(
+        '--metrics', type=str, nargs='+',
+        default=['accuracy', 'f1_macro'],
+        help='Metric names for table mode (e.g. accuracy f1_macro auc_ovr).',
+    )
+    parser.add_argument(
+        '--source', type=str, default='test_metrics',
+        choices=['test_metrics', 'val_metrics'],
+        help='Which metrics dict to read from logs.',
+    )
+    parser.add_argument(
+        '--table-output', type=str, default=None,
+        help='Output .tex path for table mode '
+             '(default: outputs/tables/comparison_{source}.tex).',
     )
 
     return parser.parse_args(argv)
@@ -186,6 +205,105 @@ def run_grad(args):
     print(f'Gradient norm plots saved to {save_path}')
 
 
+def run_table(args):
+    """Generate a LaTeX-formatted comparison table for one or more models."""
+    models = _resolve_models(args, multi=True)
+    if not models:
+        return
+
+    # Gather metrics from logs
+    table_data = {}
+    for model_name in models:
+        log_p = _log_path(model_name)
+        if not os.path.exists(log_p):
+            print(f'Skipping {model_name}: log not found')
+            continue
+        with open(log_p) as f:
+            log_data = json.load(f)
+        source_dict = log_data.get(args.source, {})
+        table_data[model_name] = {
+            metric: source_dict.get(metric, None)
+            for metric in args.metrics
+        }
+
+    if not table_data:
+        print('No valid logs found.')
+        return
+
+    # Check which models have all requested metrics
+    valid_models = {
+        m: d for m, d in table_data.items()
+        if all(v is not None for v in d.values())
+    }
+    missing = set(models) - set(valid_models.keys())
+    if missing:
+        print(f'WARNING: skipping models (missing metrics): {", ".join(sorted(missing))}')
+
+    if not valid_models:
+        print('No models with all requested metrics.')
+        return
+
+    # Determine best value per metric (higher is better for all common metrics)
+    best = {}
+    for metric in args.metrics:
+        values = [(m, d[metric]) for m, d in valid_models.items()]
+        best[metric] = max(values, key=lambda x: x[1])
+
+    # Build LaTeX table
+    n_cols = len(args.metrics)
+    col_spec = 'l' + 'c' * n_cols
+    header_metrics = ' & '.join(
+        _fmt_metric_name(m) for m in args.metrics
+    )
+    caption = (
+        f'Model comparison on {args.source.replace("_", " ")} '
+        f'({", ".join(_fmt_metric_name(m) for m in args.metrics)})'
+    )
+
+    lines = []
+    lines.append(r'\begin{table}[htbp]')
+    lines.append(r'  \centering')
+    lines.append(f'  \\caption{{{caption}}}')
+    lines.append(r'  \label{tab:model_comparison}')
+    lines.append(r'  \begin{tabular}{' + col_spec + '}')
+    lines.append(r'    \toprule')
+    lines.append(f'    Model & {header_metrics} \\\\')
+    lines.append(r'    \midrule')
+
+    for model_name in models:
+        if model_name not in valid_models:
+            continue
+        row_d = valid_models[model_name]
+        cells = []
+        for metric in args.metrics:
+            val = row_d[metric]
+            best_model, best_val = best[metric]
+            cell = f'{val:.4f}'
+            if model_name == best_model:
+                cell = f'\\textbf{{{cell}}}'
+            cells.append(cell)
+        lines.append(f'    {model_name} & {" & ".join(cells)} \\\\')
+
+    lines.append(r'    \bottomrule')
+    lines.append(r'  \end{tabular}')
+    lines.append(r'\end{table}')
+
+    tex_content = '\n'.join(lines)
+
+    os.makedirs(f'{OUPUTS_DIR}/tables', exist_ok=True)
+    if args.table_output:
+        output_path = args.table_output
+    else:
+        output_path = f'{OUPUTS_DIR}/tables/comparison_{args.source}.tex'
+    with open(output_path, 'w') as f:
+        f.write(tex_content + '\n')
+    print(f'LaTeX table saved to {output_path}')
+
+
+def _fmt_metric_name(metric):
+    return metric.replace('_', ' ').title()
+
+
 # ======================
 #  Argument helpers
 # ======================
@@ -239,6 +357,7 @@ DISPATCH = {
     'train':   run_train,
     'compare': run_compare,
     'grad':    run_grad,
+    'table':   run_table,
 }
 
 

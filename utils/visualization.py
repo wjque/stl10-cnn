@@ -354,7 +354,7 @@ def pca_heatmap(features, seed=42):
     return heatmap_uint8, pca.explained_variance_ratio_
 
 
-def _overlay_heatmap(orig, heatmap_pil, alpha=0.5):
+def _overlay_heatmap(orig, heatmap_pil, alpha=0.55):
     """Overlay heatmap on original image with semi-transparency.
 
     Optionally draws grid lines whose spacing reflects the scale ratio
@@ -381,37 +381,42 @@ def _save_pca_sample(model_name, dataset, idx, cls_name, model, device, save_dir
     orig = denormalize(img)
     orig_pil = Image.fromarray(orig)
 
-    # Individual saves: original + raw heatmaps (no overlay)
+    n_stages = len(stage_features)
     heatmap_pils = []
-    for stage_idx, feat in enumerate(stage_features):
+    for feat in stage_features:
         feat_cpu = feat[0].cpu()
         heatmap_data, _ = pca_heatmap(feat_cpu, seed=seed)
-        heatmap_pil = Image.fromarray(heatmap_data)
-        heatmap_pils.append(heatmap_pil)
+        heatmap_pils.append(Image.fromarray(heatmap_data))
 
-    # Combined strip
-    combined_imgs = [orig_pil]
-    for stage_idx, heatmap_pil in enumerate(heatmap_pils):
-        overlay = _overlay_heatmap(orig, heatmap_pil)
-        combined_imgs.append(overlay)
+    # Row 1: original + raw heatmaps (resized to 96×96, no overlay)
+    row1 = [orig_pil]
+    for hp in heatmap_pils:
+        row1.append(hp.resize((96, 96), Image.BILINEAR))
+
+    # Row 2: original + heatmaps overlaid on original
+    row2 = [orig_pil]
+    for hp in heatmap_pils:
+        row2.append(_overlay_heatmap(orig, hp))
+
+    # Assemble 2-row combined strip
+    col_count = n_stages + 1
+    gap = 4
+    total_w = 96 * col_count + gap * col_count
+    total_h = 96 * 2 + gap
+    combined = Image.new('RGB', (total_w, total_h))
+
+    x = 0
+    for pil_img in row1:
+        combined.paste(pil_img, (x, 0))
+        x += 96 + gap
+
+    x = 0
+    for pil_img in row2:
+        combined.paste(pil_img, (x, 96 + gap))
+        x += 96 + gap
 
     cls_save_dir = os.path.join(save_dir, cls_name)
     os.makedirs(cls_save_dir, exist_ok=True)
-
-    # Save individual images: original + raw heatmaps
-    orig_pil.save(os.path.join(cls_save_dir, f'{model_name}_orig.png'))
-    for stage_idx, heatmap_pil in enumerate(heatmap_pils):
-        heatmap_pil.save(os.path.join(cls_save_dir, f'{model_name}_stage{stage_idx}.png'))
-
-    # Save combined strip (overlayed)
-    gap = 4
-    n = len(combined_imgs)
-    combined = Image.new('RGB', (96 * n + gap * n, 96))
-    x_offset = 0
-    for pil_img in combined_imgs:
-        combined.paste(pil_img, (x_offset, 0))
-        x_offset += 96 + gap
-
     combined.save(os.path.join(cls_save_dir, f'{model_name}_stages.png'))
 
 
