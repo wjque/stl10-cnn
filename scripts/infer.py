@@ -77,11 +77,13 @@ def infer(model, test_loader, device):
     return metrics
 
 
-def infer_single(config_name):
+def infer_single(config_name, data_dir='STL10/test'):
     """Run inference for a single experiment configuration.
 
     Args:
         config_name: Name of config module (e.g., '01_baseline').
+        data_dir: Dataset directory to infer on (default 'STL10/test').
+                  Must be 'STL10/val' or 'STL10/test'.
 
     Returns:
         Tuple of (config_name, log_data_dict_or_None).
@@ -100,15 +102,18 @@ def infer_single(config_name):
     model, log_data = load_model_from_log(log_path, device)
     # 用日志中的配置重建 Config 对象以创建 DataLoader
     config = Config(**log_data['config'])
-    _, _, test_loader, _ = create_dataloaders(config)
+    _, val_loader, test_loader, _ = create_dataloaders(config)
 
-    metrics = infer(model, test_loader, device)
+    loader = val_loader if data_dir == 'STL10/val' else test_loader
+    set_name = 'Val' if data_dir == 'STL10/val' else 'Test'
 
-    print(f'Test Accuracy:  {metrics["accuracy"]:.4f}')
-    print(f'Test Precision: {metrics["precision_macro"]:.4f}')
-    print(f'Test Recall:    {metrics["recall_macro"]:.4f}')
-    print(f'Test F1 (macro):{metrics["f1_macro"]:.4f}')
-    print(f'Test AUC (ovr): {metrics.get("auc_ovr", 0):.4f}')
+    metrics = infer(model, loader, device)
+
+    print(f'{set_name} Accuracy:  {metrics["accuracy"]:.4f}')
+    print(f'{set_name} Precision: {metrics["precision_macro"]:.4f}')
+    print(f'{set_name} Recall:    {metrics["recall_macro"]:.4f}')
+    print(f'{set_name} F1 (macro):{metrics["f1_macro"]:.4f}')
+    print(f'{set_name} AUC (ovr): {metrics.get("auc_ovr", 0):.4f}')
     print(f'Confusion Matrix:\n{np.array(metrics["confusion_matrix"])}')
 
     log_data['test_metrics'] = metrics
@@ -124,7 +129,7 @@ def infer_all(args):
 
     all_logs = {}
     for name in config_names:
-        config_name, log_data = infer_single(name)
+        config_name, log_data = infer_single(name, data_dir=args.data_dir)
         if log_data is not None:
             all_logs[config_name] = log_data
 
@@ -146,6 +151,11 @@ if __name__ == '__main__':
         '--output-dir', type=str,
         default="outputs/figures",
         help='Directory to store infer results.'
+    )
+    parser.add_argument(
+        '--data-dir', type=str,
+        default="STL10/test",
+        help='Dataset directory to infer on (STL10/val or STL10/test).'
     )
     args = parser.parse_args()
 

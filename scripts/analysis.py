@@ -30,6 +30,9 @@ from utils.visualization import (
     plot_confusion_matrix, plot_training_curves,
     plot_comparison, plot_grad_norms,
 )
+from scripts.infer import load_model_from_log, infer
+from utils.dataloader import create_dataloaders
+from configs import Config
 
 DEFAULT_MODELS = ['01_baseline', '02_flip_h', '03_adamw', '04_avgpool']
 OUPUTS_DIR = './outputs'
@@ -47,7 +50,7 @@ def parse_args(argv=None):
 
     parser.add_argument(
         'mode',
-        choices=['pca', 'cm', 'train', 'compare', 'grad', 'table'],
+        choices=['pca', 'cm', 'train', 'compare', 'grad', 'eval', 'table'],
         help='Analysis mode to run',
     )
     parser.add_argument(
@@ -98,6 +101,14 @@ def parse_args(argv=None):
         '--table-output', type=str, default=None,
         help='Output .tex path for table mode '
              '(default: outputs/tables/comparison_{source}.tex).',
+    )
+    parser.add_argument(
+        '--title', type=str, default=None,
+        help='Custom caption title for the LaTeX table.',
+    )
+    parser.add_argument(
+        '--log-dir', type=str, default='outputs/logs',
+        help='Directory containing JSON log/eval files.',
     )
 
     return parser.parse_args(argv)
@@ -211,14 +222,14 @@ def run_table(args):
     if not models:
         return
 
-    # Gather metrics from logs
+    # Gather metrics from logs/eval
     table_data = {}
     for model_name in models:
-        log_p = _log_path(model_name)
-        if not os.path.exists(log_p):
-            print(f'Skipping {model_name}: log not found')
+        json_p = f'{args.log_dir}/{model_name}.json'
+        if not os.path.exists(json_p):
+            print(f'Skipping {model_name}: not found')
             continue
-        with open(log_p) as f:
+        with open(json_p) as f:
             log_data = json.load(f)
         source_dict = log_data.get(args.source, {})
         table_data[model_name] = {
@@ -255,13 +266,16 @@ def run_table(args):
     header_metrics = ' & '.join(
         _fmt_metric_name(m) for m in args.metrics
     )
-    caption = (
-        f'Model comparison on {args.source.replace("_", " ")} '
-        f'({", ".join(_fmt_metric_name(m) for m in args.metrics)})'
-    )
+    if args.title:
+        caption = args.title
+    else:
+        caption = (
+            f'Model comparison on {args.source.replace("_", " ")} '
+            f'({", ".join(_fmt_metric_name(m) for m in args.metrics)})'
+        )
 
     lines = []
-    lines.append(r'\begin{table}[htbp]')
+    lines.append(r'\begin{table}[H]')
     lines.append(r'  \centering')
     lines.append(f'  \\caption{{{caption}}}')
     lines.append(r'  \label{tab:model_comparison}')
@@ -282,7 +296,8 @@ def run_table(args):
             if model_name == best_model:
                 cell = f'\\textbf{{{cell}}}'
             cells.append(cell)
-        lines.append(f'    {model_name} & {" & ".join(cells)} \\\\')
+        tex_name = model_name.replace('_', r'\_')
+        lines.append(f'    {tex_name} & {" & ".join(cells)} \\\\')
 
     lines.append(r'    \bottomrule')
     lines.append(r'  \end{tabular}')
@@ -298,6 +313,42 @@ def run_table(args):
     with open(output_path, 'w') as f:
         f.write(tex_content + '\n')
     print(f'LaTeX table saved to {output_path}')
+
+
+def run_eval(args):
+    """Run inference on val+test using best model, save to outputs/eval/."""
+    models = _resolve_models(args, multi=True, default=DEFAULT_MODELS)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    os.makedirs(f'{OUPUTS_DIR}/eval', exist_ok=True)
+
+    for model_name in models:
+        log_p = _log_path(model_name)
+        model_p = f'{OUPUTS_DIR}/models/{model_name}.pth'
+        if not os.path.exists(log_p) or not os.path.exists(model_p):
+            print(f'Skipping {model_name}: log or model not found')
+            continue
+
+        model, log_data = load_model_from_log(log_p, device)
+        config = Config(**log_data['config'])
+        _, val_loader, test_loader, _ = create_dataloaders(config)
+
+        val_metrics = infer(model, val_loader, device)
+        test_metrics = infer(model, test_loader, device)
+
+        print(f'{model_name}  Val Accuracy: {val_metrics["accuracy"]:.4f}  Test Accuracy: {test_metrics["accuracy"]:.4f}')
+
+        eval_data = {
+            'model': model_name,
+            'config': log_data['config'],
+            'val_metrics': val_metrics,
+            'test_metrics': test_metrics,
+        }
+        eval_path = f'{OUPUTS_DIR}/eval/{model_name}.json'
+        with open(eval_path, 'w') as f:
+            json.dump(eval_data, f, indent=2,
+                      default=lambda x: x.tolist() if hasattr(x, 'tolist') else str(x))
+
+    print(f'Eval results saved to {OUPUTS_DIR}/eval/')
 
 
 def _fmt_metric_name(metric):
@@ -357,6 +408,7 @@ DISPATCH = {
     'train':   run_train,
     'compare': run_compare,
     'grad':    run_grad,
+    'eval':    run_eval,
     'table':   run_table,
 }
 
