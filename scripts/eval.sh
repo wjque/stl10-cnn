@@ -22,9 +22,9 @@ AUGMENT_MODELS=("01_baseline" "02_color_jitter" "02_flip_h" "02_random_crop")
 NORM_MODELS=("01_baseline" "02_flip_h" "03_adamw" "03_batchnorm" "03_dropout")
 MODEL_MODELS=("01_baseline" "03_adamw" "04_avgpool" "04_deep" "04_sigmoid")
 
-# echo "Step 1: Running inference on val+test sets (best model)..."
-# $PYTHON scripts/analysis.py eval --model "${ALL_MODELS[@]}"
-# echo ""
+echo "Step 1: Running inference on val+test sets (best model)..."
+$PYTHON scripts/analysis.py eval --model "${ALL_MODELS[@]}"
+echo ""
 
 echo "Step 2: Generating LaTeX tables..."
 echo ""
