@@ -1,13 +1,13 @@
 from configs import Config
 
 config = Config(
-    name='05_deep_no_bn',
+    name='05_dropout_no_bn',
     augmentation='flip_h',
-    depth='deep',
-    activation='relu',
+    depth='shallow',
+    activation='sigmoid',
     pooling='max',
     use_bn=False,
     dropout=0.0,
-    optimizer_name='adamw',
+    optimizer_name='sgd',
     learning_rate=0.01,
 )
