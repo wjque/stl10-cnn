@@ -1,7 +1,7 @@
 from configs import Config
 
 config = Config(
-    name='05_dropout_no_bn',
+    name='05_sigmoid_no_bn',
     augmentation='flip_h',
     depth='shallow',
     activation='sigmoid',

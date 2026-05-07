@@ -4,6 +4,7 @@ import json
 import copy
 import argparse
 import importlib
+import warnings
 from collections import defaultdict
 import numpy as np
 import torch
@@ -19,9 +20,15 @@ from utils.grad_utils import (
     accumulate_grad_norms,
     average_grad_norms,
     get_top_grad_norms,
+    find_activation_layers,
+    register_act_grad_hooks,
+    remove_act_grad_hooks,
+    get_act_grad_stats,
+    accumulate_act_grad_stats,
+    average_act_grad_stats,
 )
 from utils.metrics import compute_metrics
-from utils.visualization import plot_training_curves, plot_tsne, plot_grad_norms
+from utils.visualization import plot_training_curves, plot_tsne, plot_grad_norms, plot_act_grad_curves
 
 
 def set_seed(seed):
@@ -33,7 +40,7 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 
-def train_one_epoch(model, loader, criterion, optimizer, device, config, log_grad_norms=False):
+def train_one_epoch(model, loader, criterion, optimizer, device, config, log_grad_norms=False, act_layers=None):
     """Run a single training epoch.
 
     Args:
@@ -44,9 +51,12 @@ def train_one_epoch(model, loader, criterion, optimizer, device, config, log_gra
         device: 'cuda' or 'cpu'.
         config: Experiment configuration dataclass.
         log_grad_norms: If True, accumulate per-layer gradient L2 norms.
+        act_layers: Optional list of (name, module) activation-layer tuples
+                    to record output/gradient norm and zero-ratio stats.
 
     Returns:
-        Tuple of (average_loss, accuracy, gradient_norms_dict_or_None).
+        Tuple of (average_loss, accuracy, gradient_norms_dict_or_None,
+                  act_grad_stats_dict_or_None).
     """
     model.train()
     running_loss = 0.0
@@ -54,6 +64,13 @@ def train_one_epoch(model, loader, criterion, optimizer, device, config, log_gra
     total = 0
     grad_sum = defaultdict(float)  # 累积各层梯度 L2 范数
     grad_steps = 0
+
+    act_grad_accum = {}
+    act_grad_steps = 0
+    handles = None
+    hook_data = None
+    if act_layers:
+        handles, hook_data = register_act_grad_hooks(act_layers)
 
     pbar = tqdm(loader, desc='Training', leave=False)
     for inputs, targets in pbar:
@@ -72,6 +89,11 @@ def train_one_epoch(model, loader, criterion, optimizer, device, config, log_gra
             accumulate_grad_norms(grad_sum, batch_grad_norms)
             grad_steps += 1
 
+        if act_layers:
+            batch_act_stats = get_act_grad_stats(hook_data)
+            accumulate_act_grad_stats(act_grad_accum, batch_act_stats)
+            act_grad_steps += 1
+
         # 防止梯度爆炸
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
         optimizer.step()
@@ -84,9 +106,13 @@ def train_one_epoch(model, loader, criterion, optimizer, device, config, log_gra
 
         pbar.set_postfix({'loss': f'{loss.item():.4f}', 'acc': f'{100.*correct/total:.2f}%'})
 
-    epoch_grad_norms = average_grad_norms(grad_sum, grad_steps) if log_grad_norms else None
+    if handles is not None:
+        remove_act_grad_hooks(handles)
 
-    return running_loss / total, correct / total, epoch_grad_norms
+    epoch_grad_norms = average_grad_norms(grad_sum, grad_steps) if log_grad_norms else None
+    epoch_act_grad = average_act_grad_stats(act_grad_accum, act_grad_steps) if act_layers else None
+
+    return running_loss / total, correct / total, epoch_grad_norms, epoch_act_grad
 
 
 @torch.no_grad()
@@ -135,13 +161,18 @@ def evaluate(model, loader, criterion, device):
     return loss, acc, metrics
 
 
-def train(config_module, log_grad_norms=False, grad_top_k=3):
+def train(config_module, log_grad_norms=False, grad_top_k=3, log_act_grad=False, top_k_layer=None):
     """
     Args:
         config_module: Imported Python module whose .config attribute holds
                        a Config dataclass instance.
         log_grad_norms: Whether to record per-layer gradient norms each epoch.
         grad_top_k: Print the top-k largest gradient norms per epoch.
+        log_act_grad: Whether to record activation-layer output/gradient norms
+                      and zero-ratio each epoch.
+        top_k_layer: When log_act_grad is True, record only the first
+                     ``top_k_layer`` activation layers from the input side.
+                     None means record all layers.
 
     Returns:
         Tuple of (trained_model, log_data_dict).
@@ -193,6 +224,12 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
     if log_grad_norms:
         log_data['train_grad_norms'] = []
 
+    act_layers = None
+    if log_act_grad:
+        act_layers = find_activation_layers(model, top_k=top_k_layer)
+        print(f'Tracking {len(act_layers)} activation layers for act-grad logging.')
+        log_data['train_act_grad'] = []
+
     # Early stopping 相关变量
     best_val_acc = 0.0
     best_epoch = 0
@@ -203,8 +240,9 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
     for epoch in range(1, config.num_epochs + 1):
         print(f'\n--- Epoch {epoch}/{config.num_epochs} ---')
 
-        train_loss, train_acc, epoch_grad_norms = train_one_epoch(
-            model, train_loader, criterion, optimizer, device, config, log_grad_norms=log_grad_norms
+        train_loss, train_acc, epoch_grad_norms, epoch_act_grad = train_one_epoch(
+            model, train_loader, criterion, optimizer, device, config,
+            log_grad_norms=log_grad_norms, act_layers=act_layers
         )
         val_loss, val_acc, val_metrics = evaluate(model, val_loader, criterion, device)
 
@@ -217,6 +255,8 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
         log_data['val_acc'].append(val_acc)
         if log_grad_norms:
             log_data['train_grad_norms'].append(epoch_grad_norms)
+        if log_act_grad:
+            log_data['train_act_grad'].append(epoch_act_grad)
 
         print(f'Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f}')
         print(f'Val   Loss: {val_loss:.4f} | Val   Acc: {val_acc:.4f}')
@@ -270,14 +310,24 @@ def train(config_module, log_grad_norms=False, grad_top_k=3):
 
     # 绘制并保存 t-SNE 特征可视化，定性判断分类器性能
     tsne_save_path = f'outputs/figures/{config.name}_tsne.png'
-    plot_tsne(model, val_loader, tsne_save_path, device=device)
-    print(f't-SNE visualization saved to {tsne_save_path}')
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            plot_tsne(model, val_loader, tsne_save_path, device=device)
+        print(f't-SNE visualization saved to {tsne_save_path}')
+    except Exception as e:
+        print(f't-SNE visualization skipped (error: {e})')
 
     # Optional: 绘制梯度范数变化图，观察梯度衰减情况
     if log_grad_norms:
         grad_fig_save_path = f'outputs/grad/{config.name}_grad_norms.png'
         plot_grad_norms(log_data, grad_fig_save_path, top_k=grad_top_k)
         print(f'Gradient norm visualization saved to {grad_fig_save_path}')
+
+    if log_act_grad:
+        act_grad_save_dir = 'outputs/act_grad'
+        plot_act_grad_curves(log_data, act_grad_save_dir, config.name)
+        print(f'Activation gradient curves saved to {act_grad_save_dir}/')
 
     return model, log_data
 
@@ -287,7 +337,13 @@ if __name__ == '__main__':
     parser.add_argument('--config', type=str, required=True, help='Config module path (e.g., configs.config_01_baseline)')
     parser.add_argument('--log-grad-norms', action='store_true', help='Enable per-epoch gradient norm logging')
     parser.add_argument('--grad-top-k', type=int, default=3, help='Number of largest per-layer gradient norms to print')
+    parser.add_argument('--log-act-grad', action='store_true', help='Enable per-epoch activation-layer output/gradient norm and zero-ratio logging')
+    parser.add_argument('--top-k-layer', type=int, default=None, help='When --log-act-grad is set, record only the first K activation layers from input side')
     args = parser.parse_args()
 
+    if args.top_k_layer is not None and not args.log_act_grad:
+        print('Warning: --top-k-layer is set but --log-act-grad is not enabled. It will have no effect.')
+
     config_module = importlib.import_module(args.config)
-    train(config_module, log_grad_norms=args.log_grad_norms, grad_top_k=args.grad_top_k)
+    train(config_module, log_grad_norms=args.log_grad_norms, grad_top_k=args.grad_top_k,
+          log_act_grad=args.log_act_grad, top_k_layer=args.top_k_layer)

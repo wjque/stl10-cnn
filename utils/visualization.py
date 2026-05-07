@@ -500,3 +500,88 @@ def plot_grad_norms(log_data, save_path, top_k=5, window=3):
                          fontsize=12, color='gray')
 
         _save_fig(fig, save_path)
+
+
+# ================================
+#  Activation-layer gradient data
+# ================================
+
+def plot_act_grad_curves(log_data, save_dir, model_name, window=3):
+    """Plot activation-layer gradient statistics as three separate figures.
+
+    Produces:
+        {save_dir}/{model_name}_act_norm.png       -- activation output L2 norms
+        {save_dir}/{model_name}_grad_norm.png      -- gradient L2 norms at activations
+        {save_dir}/{model_name}_grad_zero_ratio.png -- gradient zero-element ratio
+
+    Each figure contains one curve per tracked activation layer, ordered from
+    input to output, with consistent colours across all three figures.
+    """
+    act_logs = log_data.get('train_act_grad', [])
+    if not act_logs:
+        return
+
+    _ensure_dir(os.path.join(save_dir, '_placeholder'))
+
+    epochs = np.arange(1, len(act_logs) + 1)
+
+    layer_names = list(act_logs[0].keys())
+    if not layer_names:
+        return
+
+    act_norms_by_layer = {}
+    grad_norms_by_layer = {}
+    zero_ratios_by_layer = {}
+    for name in layer_names:
+        act_norms_by_layer[name] = np.array(
+            [e[name]['act_norm'] for e in act_logs], dtype=float
+        )
+        grad_norms_by_layer[name] = np.array(
+            [e[name]['grad_norm'] for e in act_logs], dtype=float
+        )
+        zero_ratios_by_layer[name] = np.array(
+            [e[name]['grad_zero_ratio'] for e in act_logs], dtype=float
+        )
+
+    colors = _get_color_palette(len(layer_names))
+    layer_color_map = dict(zip(layer_names, colors))
+
+    def _layer_label(name):
+        idx = layer_names.index(name) + 1
+        return f'L{idx}'
+
+    # ------ Figure 1: activation output L2 norms ------
+    with plt.style.context(STYLE_CONTEXT):
+        fig1, ax1 = plt.subplots(figsize=(10, 6))
+        for name in layer_names:
+            _plot_smoothed(ax1, epochs, act_norms_by_layer[name],
+                           layer_color_map[name], _layer_label(name), window)
+        ax1.set_yscale('log')
+        _style_ax(ax1, 'Epoch', 'L2 Activation Norm',
+                  'Activation Output Norms per Layer')
+        _add_legend(ax1, fontsize=7)
+        _save_fig(fig1, os.path.join(save_dir, f'{model_name}_act_norm.png'))
+
+    # ------ Figure 2: gradient L2 norms at activations ------
+    with plt.style.context(STYLE_CONTEXT):
+        fig2, ax2 = plt.subplots(figsize=(10, 6))
+        for name in layer_names:
+            _plot_smoothed(ax2, epochs, grad_norms_by_layer[name],
+                           layer_color_map[name], _layer_label(name), window)
+        ax2.set_yscale('log')
+        _style_ax(ax2, 'Epoch', 'L2 Gradient Norm',
+                  'Gradient Norms at Activation Layers')
+        _add_legend(ax2, fontsize=7)
+        _save_fig(fig2, os.path.join(save_dir, f'{model_name}_grad_norm.png'))
+
+    # ------ Figure 3: gradient zero-element ratio ------
+    with plt.style.context(STYLE_CONTEXT):
+        fig3, ax3 = plt.subplots(figsize=(10, 6))
+        for name in layer_names:
+            _plot_smoothed(ax3, epochs, zero_ratios_by_layer[name],
+                           layer_color_map[name], _layer_label(name), window)
+        ax3.set_ylim(0, 1)
+        _style_ax(ax3, 'Epoch', 'Zero Ratio',
+                  'Gradient Zero-Element Ratio at Activation Layers')
+        _add_legend(ax3, fontsize=7)
+        _save_fig(fig3, os.path.join(save_dir, f'{model_name}_grad_zero_ratio.png'))
