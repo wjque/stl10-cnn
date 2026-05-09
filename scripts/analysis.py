@@ -63,6 +63,10 @@ def parse_args(argv=None):
         '--window', type=int, default=5,
         help='Smoothing window size.',
     )
+    parser.add_argument(
+        '--force', action='store_true',
+        help='Force rerun for modes that support skipping existing outputs.',
+    )
 
     # extra args for pca mode
     parser.add_argument(
@@ -324,8 +328,12 @@ def run_eval(args):
     for model_name in models:
         log_p = _log_path(model_name)
         model_p = f'{OUPUTS_DIR}/models/{model_name}.pth'
+        eval_path = f'{OUPUTS_DIR}/eval/{model_name}.json'
         if not os.path.exists(log_p) or not os.path.exists(model_p):
             print(f'Skipping {model_name}: log or model not found')
+            continue
+        if os.path.exists(eval_path) and not args.force:
+            print(f'Skipping {model_name}: eval results already exist')
             continue
 
         model, log_data = load_model_from_log(log_p, device)
@@ -343,7 +351,6 @@ def run_eval(args):
             'val_metrics': val_metrics,
             'test_metrics': test_metrics,
         }
-        eval_path = f'{OUPUTS_DIR}/eval/{model_name}.json'
         with open(eval_path, 'w') as f:
             json.dump(eval_data, f, indent=2,
                       default=lambda x: x.tolist() if hasattr(x, 'tolist') else str(x))
@@ -391,6 +398,15 @@ def _warn_missing(log_p):
 
     
 def _build_fig_path(model_name, suffix):
+    subdirs = {
+        'confusion': 'coonfusion',
+        'training': 'training',
+    }
+    subdir = subdirs.get(suffix)
+    if subdir is not None:
+        output_dir = f"{OUPUTS_DIR}/figures/{subdir}"
+        os.makedirs(output_dir, exist_ok=True)
+        return f"{output_dir}/{model_name}_{suffix}.png"
     return f"{OUPUTS_DIR}/figures/{model_name}_{suffix}.png"
 
 

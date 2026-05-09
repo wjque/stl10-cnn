@@ -119,6 +119,8 @@ def _comparison_paths(save_path):
     base, ext = os.path.splitext(save_path)
     ext = ext or '.png'
     return {
+        'train_loss': f'{base}_train_loss{ext}',
+        'train_acc': f'{base}_train_acc{ext}',
         'val_loss': f'{base}_val_loss{ext}',
         'val_acc': f'{base}_val_acc{ext}',
         'final_vs_best': f'{base}_final_vs_best{ext}',
@@ -205,6 +207,20 @@ def plot_comparison(all_logs, save_path, window=3):
     names = list(all_logs.keys())
 
     with plt.style.context(STYLE_CONTEXT):
+        # --- train loss comparison ---
+        fig0, ax0 = plt.subplots(figsize=(12, 6))
+        _plot_comparison_metric(ax0, all_logs, 'train_loss',
+                                'Train Loss', 'Training Loss Comparison',
+                                colors, window)
+        _save_fig(fig0, paths['train_loss'])
+
+        # --- train accuracy comparison ---
+        fig0b, ax0b = plt.subplots(figsize=(12, 6))
+        _plot_comparison_metric(ax0b, all_logs, 'train_acc',
+                                'Train Accuracy', 'Training Accuracy Comparison',
+                                colors, window)
+        _save_fig(fig0b, paths['train_acc'])
+
         # --- val loss comparison ---
         fig1, ax1 = plt.subplots(figsize=(12, 6))
         _plot_comparison_metric(ax1, all_logs, 'val_loss',
