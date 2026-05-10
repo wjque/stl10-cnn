@@ -84,10 +84,54 @@ python scripts/train.py --experiment s1_optsgd_lr1e-2_seed42
 bash scripts/eval.sh stage1
 ```
 
+该命令会依次执行：
+
+- 按阶段批量评估验证集和测试集指标
+- 为每个实验生成 `t-SNE` 图
+- 汇总阶段结果到报告文件
+
 指定基线：
 
 ```bash
 bash scripts/eval.sh stage3 s2_augcrop_seed42
+```
+
+生成单个实验的训练曲线：
+
+```bash
+python scripts/analysis.py train --model s1_optsgd_lr1e-2_seed42
+```
+
+生成单个或多个实验的 t-SNE 图：
+
+```bash
+python scripts/analysis.py tsne --model s1_optsgd_lr1e-2_seed42
+python scripts/analysis.py tsne --stage stage1
+```
+
+生成混淆矩阵：
+
+```bash
+python scripts/analysis.py cm --model s1_optsgd_lr1e-2_seed42
+```
+
+生成 PCA 可视化：
+
+```bash
+python scripts/analysis.py pca --model s1_optsgd_lr1e-2_seed42
+```
+
+生成多实验对比图：
+
+```bash
+python scripts/analysis.py compare --model s1_optsgd_lr1e-2_seed42 s1_optadamw_lr1e-3_seed42
+```
+
+导出实验结果表格：
+
+```bash
+python scripts/analysis.py table --model s1_optsgd_lr1e-2_seed42 s1_optadamw_lr1e-3_seed42
+python scripts/analysis.py table --table-kind stage-summary --stage stage1
 ```
 
 ### 实验复现方案
@@ -137,13 +181,22 @@ bash scripts/eval.sh stage3 s2_augcrop_seed42
 | `outputs/logs/` | 单次实验日志 |
 | `outputs/eval/` | 验证集/测试集评估结果 |
 | `outputs/reports/` | 按阶段聚合的结果汇总 |
-| `outputs/figures/` | 训练曲线、对比图、PCA、t-SNE 等可视化 |
+| `outputs/figures/` | 所有分析图片输出根目录 |
+
+图片输出规则：
+
+- `outputs/figures/training/<model_name>.png`：训练曲线
+- `outputs/figures/confusion/<model_name>.png`：混淆矩阵
+- `outputs/figures/tsne/<model_name>.png`：t-SNE 图
+- `outputs/figures/pca/<model_name>/`：PCA 分阶段可视化
+- `outputs/figures/comparison*`：多实验对比图
 
 ## 分析功能
 
 - `python scripts/analysis.py pca --model <exp1> <exp2>`
 - `python scripts/analysis.py cm --model <exp1> <exp2>`
 - `python scripts/analysis.py train --model <exp>`
+- `python scripts/analysis.py tsne --model <exp1> <exp2>`
 - `python scripts/analysis.py compare --model <exp1> <exp2>`
 - `python scripts/analysis.py eval --stage stage1`
 - `python scripts/analysis.py table --model <exp1> <exp2>`

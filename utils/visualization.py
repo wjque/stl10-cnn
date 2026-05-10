@@ -115,16 +115,14 @@ def _annotate_best(ax, best_epoch, best_val):
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8, edgecolor='#2ca02c'))
 
 
-def _comparison_paths(save_path):
-    base, ext = os.path.splitext(save_path)
-    ext = ext or '.png'
+def _comparison_paths(save_dir, ext='.png'):
     return {
-        'train_loss': f'{base}_train_loss{ext}',
-        'train_acc': f'{base}_train_acc{ext}',
-        'val_loss': f'{base}_val_loss{ext}',
-        'val_acc': f'{base}_val_acc{ext}',
-        'final_vs_best': f'{base}_final_vs_best{ext}',
-        'test_acc': f'{base}_test_acc{ext}',
+        'train_loss': os.path.join(save_dir, f'train_loss{ext}'),
+        'train_acc': os.path.join(save_dir, f'train_acc{ext}'),
+        'val_loss': os.path.join(save_dir, f'val_loss{ext}'),
+        'val_acc': os.path.join(save_dir, f'val_acc{ext}'),
+        'final_vs_best': os.path.join(save_dir, f'final_vs_best{ext}'),
+        'test_acc': os.path.join(save_dir, f'test_acc{ext}'),
     }
 
 
@@ -197,9 +195,9 @@ def _plot_comparison_metric(ax, all_logs, key, ylabel, title, colors, window):
     _add_legend(ax, 'upper right', fontsize=9)
 
 
-def plot_comparison(all_logs, save_path, window=3):
-    _ensure_dir(save_path)
-    paths = _comparison_paths(save_path)
+def plot_comparison(all_logs, save_dir, window=3):
+    os.makedirs(save_dir, exist_ok=True)
+    paths = _comparison_paths(save_dir)
 
     n_models = len(all_logs)
     colors = _get_color_palette(n_models)

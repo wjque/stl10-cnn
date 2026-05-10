@@ -166,8 +166,9 @@ def run_compare(args):
     if not logs:
         print('No valid logs found.')
         return
-    save_dir = build_mode_dir('comparison')
-    plot_comparison(logs, save_dir, window=args.window)
+    stage_name = args.stage or next((log.get('stage') for log in logs.values() if log.get('stage')), 'comparison')
+    save_dir = build_mode_dir('comparison', stage_name)
+    plot_comparison(logs, str(save_dir), window=args.window)
     print(f'Comparison plots saved to {save_dir}')
 
 #==================================
