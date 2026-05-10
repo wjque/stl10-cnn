@@ -12,7 +12,6 @@ def get_base_config(name='base', seed=42):
         input_size=96,
         augmentations=[],
         depth='shallow',
-        activation='relu',
         pooling='max',
         use_bn=False,
         dropout=0.0,

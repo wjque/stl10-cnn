@@ -24,7 +24,6 @@ def load_model_from_log(log_path, device):
     model = CNNFactory(
         num_classes=10,
         depth=config_dict.get('depth', 'shallow'),
-        activation=config_dict.get('activation', 'relu'),
         pooling=config_dict.get('pooling', 'max'),
         use_bn=config_dict.get('use_bn', False),
         dropout=config_dict.get('dropout', 0.0),

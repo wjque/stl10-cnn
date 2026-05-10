@@ -15,7 +15,6 @@ class Config:
     augmentations: list[str] = field(default_factory=list)
     augmentation: Optional[str] = None
     depth: str = 'shallow'
-    activation: str = 'relu'
     pooling: str = 'max'
     use_bn: bool = False
 

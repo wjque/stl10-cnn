@@ -30,7 +30,6 @@ def build_experiments(baseline=None, seeds=DEFAULT_SEEDS):
                     seed=seed,
                     augmentations=[],
                     depth='shallow',
-                    activation='relu',
                     pooling='max',
                     use_bn=False,
                     dropout=0.0,

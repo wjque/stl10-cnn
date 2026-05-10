@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class CNNFactory(nn.Module):
-    """Build a CNN with configurable depth, activation, pooling, and normalization.
+    """Build a CNN with configurable depth, pooling, and normalization.
 
     The network consists of: 
         a feature extractor (sequential conv blocks + pooling stages)
@@ -12,18 +12,13 @@ class CNNFactory(nn.Module):
     Args:
         num_classes: Number of output classes (10 for STL-10).
         depth: 'shallow' (3 stages) or 'deep' (5 stages).
-        activation: 'relu'.
         pooling: 'max' for MaxPool2d, 'avg' for AvgPool2d.
         use_bn: Whether to insert BatchNorm after each conv.
         dropout: Dropout rate applied before the final linear layer.
     """
 
-    def __init__(self, num_classes=10, depth='shallow',
-                 activation='relu', pooling='max', use_bn=False, dropout=0.0):
+    def __init__(self, num_classes=10, depth='shallow', pooling='max', use_bn=False, dropout=0.0):
         super().__init__()
-        if activation != 'relu':
-            raise ValueError(f'Unsupported activation: {activation}')
-        self.activation = activation
 
         # 根据 depth 参数选择卷积通道配置：浅层网络 3 个 stage，深层网络 5 个 stage
         if depth == 'shallow':
@@ -51,7 +46,6 @@ class CNNFactory(nn.Module):
                 self._init_conv(conv1)
                 self._init_conv(conv2)
 
-                # 根据 activation 参数选择激活函数
                 act1 = nn.ReLU(inplace=True)
                 act2 = nn.ReLU(inplace=True)
 
