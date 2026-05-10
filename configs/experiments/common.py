@@ -5,10 +5,12 @@ from configs.base import get_base_config
 from configs.experiments import registry
 
 
-DEFAULT_SEEDS = (42, 52, 62)
+# Shared defaults for stage sweeps.
+DEFAULT_SEEDS = (42, 20260505, 123)
 
 
 def resolve_baseline(stage_name, baseline=None):
+    # Baselines can come from the default base config, a Config object, or a saved log.
     if baseline is None:
         return get_base_config(name=f'{stage_name}_base')
     if isinstance(baseline, Config):
@@ -20,6 +22,7 @@ def resolve_baseline(stage_name, baseline=None):
 
 
 def format_value(value):
+    # Normalize values into compact, filename-safe tokens.
     if isinstance(value, float):
         if value == 0.0:
             return '0'
@@ -36,6 +39,7 @@ def format_value(value):
 
 
 def build_experiment_name(stage_prefix, seed, **parts):
+    # Build the canonical experiment name used across logs and checkpoints.
     tokens = [stage_prefix]
     for key, value in parts.items():
         tokens.append(f'{key}{format_value(value)}')
@@ -44,6 +48,7 @@ def build_experiment_name(stage_prefix, seed, **parts):
 
 
 def config_from_baseline(base_config, *, name, stage, seed, notes='', **updates):
+    # Clone a baseline config and apply stage-specific overrides.
     payload = base_config.__dict__.copy()
     payload.update(updates)
     payload.update({
@@ -58,5 +63,6 @@ def config_from_baseline(base_config, *, name, stage, seed, notes='', **updates)
 
 
 def ensure_output_dirs():
+    # Create the shared output folders used by experiment generation.
     Path('outputs/models').mkdir(parents=True, exist_ok=True)
     Path('outputs/logs').mkdir(parents=True, exist_ok=True)

@@ -39,6 +39,10 @@ subprocess.run(
     check=True,
 )
 subprocess.run(
+    [python_bin, 'scripts/analysis.py', 'tsne', '--model', *names],
+    check=True,
+)
+subprocess.run(
     [python_bin, 'scripts/summarize_stage.py', '--stage', stage, '--baseline', baseline or ''],
     check=True,
 )

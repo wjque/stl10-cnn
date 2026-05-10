@@ -18,6 +18,7 @@ from utils.visualization import (
     plot_comparison,
     plot_confusion_matrix,
     plot_training_curves,
+    save_tsne_visualization,
 )
 
 
@@ -27,17 +28,18 @@ DEFAULT_EXPERIMENT = 's1_optsgd_lr1e-2_seed42'
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description='Analysis utilities for the staged experiment pipeline.')
-    parser.add_argument('mode', choices=['pca', 'cm', 'train', 'compare', 'eval', 'table'])
+    parser.add_argument('mode', choices=['pca', 'cm', 'train', 'compare', 'eval', 'table', 'tsne'])
     parser.add_argument('--model', nargs='+', help='Experiment name(s).')
     parser.add_argument('--stage', choices=['stage1', 'stage2', 'stage3', 'stage4'])
+    
     parser.add_argument('--baseline', default='', help='Optional baseline experiment name for stage expansion.')
     parser.add_argument('--window', type=int, default=5, help='Smoothing window size for curve plots.')
     parser.add_argument('--force', action='store_true', help='Overwrite cached eval results if they exist.')
     parser.add_argument('--data-dir', default='STL10/test', help='Dataset directory used by PCA mode.')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for PCA sampling.')
-    parser.add_argument('--output', default='outputs/figures/comparison', help='Output path prefix for compare mode.')
     parser.add_argument('--metrics', nargs='+', default=['accuracy', 'f1_macro'], help='Metric names for table mode.')
     parser.add_argument('--source', default='test_metrics', choices=['test_metrics', 'val_metrics'], help='Metric source for experiment table mode.')
+    
     parser.add_argument('--table-output', default=None, help='Output path for table mode.')
     parser.add_argument('--title', default=None, help='Custom caption title for the LaTeX table.')
     parser.add_argument('--log-dir', default='outputs/logs', help='Directory containing per-experiment logs.')
@@ -45,6 +47,10 @@ def parse_args(argv=None):
     parser.add_argument('--table-kind', default='experiments', choices=['experiments', 'stage-summary'], help='Table source kind.')
     return parser.parse_args(argv)
 
+
+#=======================
+#  Utils Function
+#=======================
 
 def resolve_models(args, require_models=True):
     if args.model:
@@ -61,15 +67,17 @@ def log_path(model_name, log_dir='outputs/logs'):
     return Path(log_dir) / f'{model_name}.json'
 
 
-def build_fig_path(model_name, suffix):
-    subdirs = {
-        'confusion': 'confusion',
-        'training': 'training',
-    }
-    output_dir = OUTPUTS_DIR / 'figures' / subdirs.get(suffix, '')
+def build_mode_fig_path(mode, model_name, ext='png'):
+    output_dir = OUTPUTS_DIR / 'figures' / mode
     output_dir.mkdir(parents=True, exist_ok=True)
-    return output_dir / f'{model_name}_{suffix}.png'
+    return output_dir / f'{model_name}.{ext}'
 
+def build_mode_dir(mode, model_name=None):
+    output_dir = OUTPUTS_DIR / 'figures' / mode
+    if model_name is not None:
+        output_dir = output_dir / model_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir
 
 def load_logs(model_names, log_dir='outputs/logs'):
     logs = {}
@@ -81,6 +89,51 @@ def load_logs(model_names, log_dir='outputs/logs'):
         with path.open('r') as f:
             logs[model_name] = json.load(f)
     return logs
+
+#==========================
+#  Main Analysis Function
+#==========================
+
+def run_train(args):
+    model_name = resolve_models(args)[0]
+    logs = load_logs([model_name])
+    if model_name not in logs:
+        return
+    save_path = build_mode_fig_path('training', model_name)
+    plot_training_curves(logs[model_name], str(save_path), window=args.window)
+    print(f'Training curves saved to {save_path}')
+
+
+def run_tsne(args):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    models = resolve_models(args)
+
+    for model_name in models:
+        current_log_path = log_path(model_name, args.log_dir)
+        model_path = OUTPUTS_DIR / 'models' / f'{model_name}.pth'
+        if not current_log_path.exists() or not model_path.exists():
+            print(f'Skipping {model_name}: log or model not found')
+            continue
+
+        model, log_data = load_model_from_log(str(current_log_path), device)
+        config = Config(**log_data['config'])
+        _, val_loader, _, _ = create_dataloaders(config)
+        save_path = build_mode_fig_path('tsne', model_name)
+        save_tsne_visualization(model_name, model, val_loader, str(save_path), device=device)
+
+
+def run_cm(args):
+    models = resolve_models(args)
+    logs = load_logs(models)
+
+    for model_name, data in logs.items():
+        cm = data.get('test_metrics', {}).get('confusion_matrix', [])
+        if not cm:
+            print(f'Skipping {model_name}: no confusion matrix in log')
+            continue
+        save_path = build_mode_fig_path('confusion', model_name)
+        plot_confusion_matrix(np.array(cm), model_name, str(save_path), normalize=True)
+        print(f'Confusion matrix for {model_name} saved to {save_path}')
 
 
 def run_pca(args):
@@ -95,7 +148,7 @@ def run_pca(args):
             continue
 
         model, _ = load_model_from_log(str(current_log_path), device)
-        save_dir = OUTPUTS_DIR / 'figures' / 'pca' / model_name
+        save_dir = build_mode_dir('pca', model_name)
         generate_pca_visualization(
             model_name,
             model,
@@ -107,39 +160,19 @@ def run_pca(args):
         )
 
 
-def run_cm(args):
-    models = resolve_models(args)
-    logs = load_logs(models)
-
-    for model_name, data in logs.items():
-        cm = data.get('test_metrics', {}).get('confusion_matrix', [])
-        if not cm:
-            print(f'Skipping {model_name}: no confusion matrix in log')
-            continue
-        save_path = build_fig_path(model_name, 'confusion')
-        plot_confusion_matrix(np.array(cm), model_name, str(save_path), normalize=True)
-        print(f'Confusion matrix for {model_name} saved to {save_path}')
-
-
-def run_train(args):
-    model_name = resolve_models(args)[0]
-    logs = load_logs([model_name])
-    if model_name not in logs:
-        return
-    save_path = build_fig_path(model_name, 'training')
-    plot_training_curves(logs[model_name], str(save_path), window=args.window)
-    print(f'Training curves saved to {save_path}')
-
-
 def run_compare(args):
     models = resolve_models(args)
     logs = load_logs(models)
     if not logs:
         print('No valid logs found.')
         return
-    plot_comparison(logs, args.output, window=args.window)
-    print(f'Comparison plots saved to {args.output}*')
+    save_dir = build_mode_dir('comparison')
+    plot_comparison(logs, save_dir, window=args.window)
+    print(f'Comparison plots saved to {save_dir}')
 
+#==================================
+#  Evaluation on val and test set
+#==================================
 
 def run_eval(args):
     models = resolve_models(args)
@@ -180,6 +213,9 @@ def run_eval(args):
 
     print(f'Eval results saved to {eval_dir}')
 
+#======================
+#  Build LaTex Tables
+#======================
 
 def build_experiment_table(args):
     models = resolve_models(args)
@@ -268,6 +304,9 @@ def run_table(args):
     caption = args.title or f'Experiment comparison on {args.source.replace("_", " ")}'
     render_latex_table(headers, rows, output_path, caption)
 
+#============
+#  Entrance
+#============
 
 DISPATCH = {
     'pca': run_pca,
@@ -276,6 +315,7 @@ DISPATCH = {
     'compare': run_compare,
     'eval': run_eval,
     'table': run_table,
+    'tsne': run_tsne,
 }
 
 

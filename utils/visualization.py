@@ -341,6 +341,11 @@ def plot_tsne(model, dataloader, save_path, device='cpu', max_samples=1000):
         _style_ax(ax, 't-SNE Component 1', 't-SNE Component 2',
                   't-SNE Feature Visualization')
         _save_fig(fig, save_path)
+
+
+def save_tsne_visualization(model_name, model, dataloader, save_path, device='cpu', max_samples=1000):
+    plot_tsne(model, dataloader, save_path, device=device, max_samples=max_samples)
+    print(f't-SNE visualization for {model_name} saved to {save_path}')
         
         
 # ========================

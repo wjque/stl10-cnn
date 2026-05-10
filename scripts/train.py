@@ -3,8 +3,6 @@ import sys
 import json
 import copy
 import argparse
-import warnings
-from collections import defaultdict
 import numpy as np
 import torch
 import torch.nn as nn
@@ -16,7 +14,13 @@ from model.cnn import CNNFactory
 from configs.experiments import get_experiment_config
 from utils.dataloader import create_dataloaders
 from utils.metrics import compute_metrics
-from utils.visualization import plot_training_curves, plot_tsne
+from utils.visualization import plot_training_curves
+
+
+def build_mode_fig_path(mode, model_name, ext='png'):
+    output_dir = os.path.join('outputs', 'figures', mode)
+    os.makedirs(output_dir, exist_ok=True)
+    return os.path.join(output_dir, f'{model_name}.{ext}')
 
 
 def set_seed(seed):
@@ -239,19 +243,9 @@ def train(config_module):
     print(f'Log saved to {config.log_save_path}')
 
     # 绘制并保存训练曲线（loss / accuracy）
-    fig_save_path = f'outputs/figures/{config.name}_curves.png'
+    fig_save_path = build_mode_fig_path('training', config.name)
     plot_training_curves(log_data, fig_save_path)
     print(f'Training curves saved to {fig_save_path}')
-
-    # 绘制并保存 t-SNE 特征可视化，定性判断分类器性能
-    tsne_save_path = f'outputs/figures/{config.name}_tsne.png'
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter('error')
-            plot_tsne(model, val_loader, tsne_save_path, device=device)
-        print(f't-SNE visualization saved to {tsne_save_path}')
-    except Exception as e:
-        print(f't-SNE visualization skipped (error: {e})')
 
     return model, log_data
 
