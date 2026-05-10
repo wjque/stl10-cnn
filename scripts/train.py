@@ -3,7 +3,6 @@ import sys
 import json
 import copy
 import argparse
-import importlib
 import warnings
 from collections import defaultdict
 import numpy as np
@@ -14,6 +13,7 @@ from tqdm import tqdm
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from model.cnn import CNNFactory
+from configs.experiments import get_experiment_config
 from utils.dataloader import create_dataloaders
 from utils.grad_utils import (
     compute_grad_norms,
@@ -212,12 +212,18 @@ def train(config_module, log_grad_norms=False, grad_top_k=3, log_act_grad=False,
     else:
         raise ValueError(f'Unknown optimizer: {config.optimizer_name}')
 
-    # 使用余弦退火学习率调度器
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.num_epochs)
+    scheduler = None
+    if config.scheduler_name == 'cosine':
+        t_max = config.scheduler_t_max or config.num_epochs
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=t_max)
+    elif config.scheduler_name != 'none':
+        raise ValueError(f'Unknown scheduler: {config.scheduler_name}')
 
     # 初始化日志数据结构
     log_data = {
         'config': {k: v for k, v in config.__dict__.items()},
+        'stage': config.stage,
+        'seed': config.seed,
         'train_loss': [], 'train_acc': [],
         'val_loss': [], 'val_acc': [],
     }
@@ -246,7 +252,8 @@ def train(config_module, log_grad_norms=False, grad_top_k=3, log_act_grad=False,
         )
         val_loss, val_acc, val_metrics = evaluate(model, val_loader, criterion, device)
 
-        scheduler.step()  # 每个 epoch 结束后更新学习率
+        if scheduler is not None:
+            scheduler.step()  # 每个 epoch 结束后更新学习率
 
         # 记录本轮指标
         log_data['train_loss'].append(train_loss)
@@ -279,7 +286,7 @@ def train(config_module, log_grad_norms=False, grad_top_k=3, log_act_grad=False,
             patience_counter += 1
             print(f'  -> No improvement ({patience_counter}/{config.patience})')
 
-        if patience_counter >= config.patience:
+        if config.use_early_stopping and patience_counter >= config.patience:
             print(f'\nEarly stopping at epoch {epoch} (best val_acc={best_val_acc:.4f} at epoch {best_epoch})')
             break
 
@@ -333,8 +340,8 @@ def train(config_module, log_grad_norms=False, grad_top_k=3, log_act_grad=False,
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Train a model with given config')
-    parser.add_argument('--config', type=str, required=True, help='Config module path (e.g., configs.config_01_baseline)')
+    parser = argparse.ArgumentParser(description='Train a generated experiment configuration')
+    parser.add_argument('--experiment', type=str, required=True, help='Generated experiment name (e.g., s1_optsgd_lr1e-2_seed42)')
     parser.add_argument('--log-grad-norms', action='store_true', help='Enable per-epoch gradient norm logging')
     parser.add_argument('--grad-top-k', type=int, default=3, help='Number of largest per-layer gradient norms to print')
     parser.add_argument('--log-act-grad', action='store_true', help='Enable per-epoch activation-layer output/gradient norm and zero-ratio logging')
@@ -344,6 +351,7 @@ if __name__ == '__main__':
     if args.top_k_layer is not None and not args.log_act_grad:
         print('Warning: --top-k-layer is set but --log-act-grad is not enabled. It will have no effect.')
 
-    config_module = importlib.import_module(args.config)
+    config_module = type('ConfigModule', (), {'config': get_experiment_config(args.experiment)})
+
     train(config_module, log_grad_norms=args.log_grad_norms, grad_top_k=args.grad_top_k,
           log_act_grad=args.log_act_grad, top_k_layer=args.top_k_layer)

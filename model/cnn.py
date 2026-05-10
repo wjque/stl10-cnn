@@ -12,7 +12,7 @@ class CNNFactory(nn.Module):
     Args:
         num_classes: Number of output classes (10 for STL-10).
         depth: 'shallow' (3 stages) or 'deep' (5 stages).
-        activation: 'relu' or 'sigmoid'.
+        activation: 'relu'.
         pooling: 'max' for MaxPool2d, 'avg' for AvgPool2d.
         use_bn: Whether to insert BatchNorm after each conv.
         dropout: Dropout rate applied before the final linear layer.
@@ -21,6 +21,8 @@ class CNNFactory(nn.Module):
     def __init__(self, num_classes=10, depth='shallow',
                  activation='relu', pooling='max', use_bn=False, dropout=0.0):
         super().__init__()
+        if activation != 'relu':
+            raise ValueError(f'Unsupported activation: {activation}')
         self.activation = activation
 
         # 根据 depth 参数选择卷积通道配置：浅层网络 3 个 stage，深层网络 5 个 stage
@@ -50,8 +52,8 @@ class CNNFactory(nn.Module):
                 self._init_conv(conv2)
 
                 # 根据 activation 参数选择激活函数
-                act1 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
-                act2 = nn.ReLU(inplace=True) if activation == 'relu' else nn.Sigmoid()
+                act1 = nn.ReLU(inplace=True)
+                act2 = nn.ReLU(inplace=True)
 
                 layers.append(conv1)
                 if use_bn:
@@ -86,13 +88,9 @@ class CNNFactory(nn.Module):
     def _init_conv(self, m):
         """Initialize convolution layer weights.
 
-        Uses Kaiming normal for ReLU networks (preserves variance through ReLU)
-        and Xavier normal for Sigmoid networks.
+        Uses Kaiming normal for ReLU networks.
         """
-        if self.activation == 'relu':
-            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
-        else:
-            nn.init.xavier_normal_(m.weight)
+        nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
         if m.bias is not None:
             nn.init.constant_(m.bias, 0)
 

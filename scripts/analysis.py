@@ -1,349 +1,173 @@
-"""
-Unified analysis script
-
-Usage (CLI):
-    python scripts/analysis.py cm   --model 01_baseline
-    python scripts/analysis.py compare --model 01_baseline 03_adamw 04_deep
-    python scripts/analysis.py grad   --model 01_baseline
-    python scripts/analysis.py pca --model 01_baseline 02_flip_h
-    python scripts/analysis.py train --model 01_baseline
-    python scripts/analysis.py table --model 01_baseline 03_adamw \\
-        --metrics accuracy f1_macro auc_ovr --source test_metrics
-
-Usage (programmatic):
-    from scripts.analysis import parse_args, run_pca, run_cm, ...
-    args = parse_args(['pca', '--model', '01_baseline'])
-    run_pca(args)
-"""
-
+import argparse
+import json
 import os
 import sys
-import json
-import argparse
+from pathlib import Path
+
 import numpy as np
 import torch
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from utils.visualization import (
-    load_model, generate_pca_visualization,
-    plot_confusion_matrix, plot_training_curves,
-    plot_comparison, plot_grad_norms,
-)
-from scripts.infer import load_model_from_log, infer
-from utils.dataloader import create_dataloaders
 from configs import Config
+from configs.experiments import build_stage_experiments
+from scripts.infer import evaluate_experiment, load_model_from_log
+from utils.dataloader import create_dataloaders
+from utils.visualization import (
+    generate_pca_visualization,
+    plot_comparison,
+    plot_confusion_matrix,
+    plot_training_curves,
+)
 
-DEFAULT_MODELS = ['01_baseline', '02_flip_h', '03_adamw', '04_avgpool']
-OUPUTS_DIR = './outputs'
 
+OUTPUTS_DIR = Path('outputs')
+DEFAULT_EXPERIMENT = 's1_optsgd_lr1e-2_seed42'
 
-# ====================
-#  Argument parser
-# ====================
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(
-        description='Visualization and analysis utilities',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-
-    parser.add_argument(
-        'mode',
-        choices=['pca', 'cm', 'train', 'compare', 'grad', 'eval', 'table'],
-        help='Analysis mode to run',
-    )
-    parser.add_argument(
-        '-m', '--model', type=str, nargs='+',
-        help='Model name(s). '
-             'For "train" / "grad" pass one name; '
-             'for "pca" / "cm" / "compare" pass one or more.',
-    )
-    parser.add_argument(
-        '--window', type=int, default=5,
-        help='Smoothing window size.',
-    )
-    parser.add_argument(
-        '--force', action='store_true',
-        help='Force rerun for modes that support skipping existing outputs.',
-    )
-
-    # extra args for pca mode
-    parser.add_argument(
-        '--data-dir', type=str, default='STL10/test',
-        help='Data directory for pca mode.',
-    )
-    parser.add_argument(
-        '--seed', type=int, default=42,
-        help='Random seed for pca mode.',
-    )
-
-    # extra args for compare mode
-    parser.add_argument(
-        '--output', type=str, default='outputs/figures/comparison',
-        help='Output path prefix for compare mode.',
-    )
-
-    # extra args for grad mode
-    parser.add_argument(
-        '--top-k', type=int, default=3,
-        help='Number of top layers to show when use grad mode.',
-    )
-
-    # extra args for table mode
-    parser.add_argument(
-        '--metrics', type=str, nargs='+',
-        default=['accuracy', 'f1_macro'],
-        help='Metric names for table mode (e.g. accuracy f1_macro auc_ovr).',
-    )
-    parser.add_argument(
-        '--source', type=str, default='test_metrics',
-        choices=['test_metrics', 'val_metrics'],
-        help='Which metrics dict to read from logs.',
-    )
-    parser.add_argument(
-        '--table-output', type=str, default=None,
-        help='Output .tex path for table mode '
-             '(default: outputs/tables/comparison_{source}.tex).',
-    )
-    parser.add_argument(
-        '--title', type=str, default=None,
-        help='Custom caption title for the LaTeX table.',
-    )
-    parser.add_argument(
-        '--log-dir', type=str, default='outputs/logs',
-        help='Directory containing JSON log/eval files.',
-    )
-
+    parser = argparse.ArgumentParser(description='Analysis utilities for the staged experiment pipeline.')
+    parser.add_argument('mode', choices=['pca', 'cm', 'train', 'compare', 'eval', 'table'])
+    parser.add_argument('--model', nargs='+', help='Experiment name(s).')
+    parser.add_argument('--stage', choices=['stage1', 'stage2', 'stage3', 'stage4'])
+    parser.add_argument('--baseline', default='', help='Optional baseline experiment name for stage expansion.')
+    parser.add_argument('--window', type=int, default=5, help='Smoothing window size for curve plots.')
+    parser.add_argument('--force', action='store_true', help='Overwrite cached eval results if they exist.')
+    parser.add_argument('--data-dir', default='STL10/test', help='Dataset directory used by PCA mode.')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for PCA sampling.')
+    parser.add_argument('--output', default='outputs/figures/comparison', help='Output path prefix for compare mode.')
+    parser.add_argument('--metrics', nargs='+', default=['accuracy', 'f1_macro'], help='Metric names for table mode.')
+    parser.add_argument('--source', default='test_metrics', choices=['test_metrics', 'val_metrics'], help='Metric source for experiment table mode.')
+    parser.add_argument('--table-output', default=None, help='Output path for table mode.')
+    parser.add_argument('--title', default=None, help='Custom caption title for the LaTeX table.')
+    parser.add_argument('--log-dir', default='outputs/logs', help='Directory containing per-experiment logs.')
+    parser.add_argument('--report-dir', default='outputs/reports', help='Directory containing stage summary reports.')
+    parser.add_argument('--table-kind', default='experiments', choices=['experiments', 'stage-summary'], help='Table source kind.')
     return parser.parse_args(argv)
 
 
-# ============================
-#  Mode implementations
-# ============================
+def resolve_models(args, require_models=True):
+    if args.model:
+        return args.model
+    if args.stage:
+        baseline = args.baseline or None
+        return [config.name for config in build_stage_experiments(args.stage, baseline=baseline)]
+    if require_models:
+        return [DEFAULT_EXPERIMENT]
+    return []
+
+
+def log_path(model_name, log_dir='outputs/logs'):
+    return Path(log_dir) / f'{model_name}.json'
+
+
+def build_fig_path(model_name, suffix):
+    subdirs = {
+        'confusion': 'confusion',
+        'training': 'training',
+    }
+    output_dir = OUTPUTS_DIR / 'figures' / subdirs.get(suffix, '')
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir / f'{model_name}_{suffix}.png'
+
+
+def load_logs(model_names, log_dir='outputs/logs'):
+    logs = {}
+    for model_name in model_names:
+        path = log_path(model_name, log_dir)
+        if not path.exists():
+            print(f'Skipping {model_name}: log not found')
+            continue
+        with path.open('r') as f:
+            logs[model_name] = json.load(f)
+    return logs
+
 
 def run_pca(args):
-    """PCA feature visualization for one or more models."""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    models = _resolve_models(args, multi=True, default=DEFAULT_MODELS)
-    print(f'Using device: {device}')
+    models = resolve_models(args)
 
     for model_name in models:
-        log_p = _log_path(model_name)
-        model_p = f'outputs/models/{model_name}.pth'
-        if not os.path.exists(log_p) or not os.path.exists(model_p):
+        current_log_path = log_path(model_name)
+        model_path = OUTPUTS_DIR / 'models' / f'{model_name}.pth'
+        if not current_log_path.exists() or not model_path.exists():
             print(f'Skipping {model_name}: log or model not found')
             continue
-        model, _ = load_model(log_p, model_p, device)
-        save_dir = f'outputs/figures/pca/{model_name}'
+
+        model, _ = load_model_from_log(str(current_log_path), device)
+        save_dir = OUTPUTS_DIR / 'figures' / 'pca' / model_name
         generate_pca_visualization(
-            model_name, model, args.data_dir, save_dir, device,
-            n_samples_per_class=1, seed=args.seed,
+            model_name,
+            model,
+            args.data_dir,
+            str(save_dir),
+            device,
+            n_samples_per_class=1,
+            seed=args.seed,
         )
 
 
 def run_cm(args):
-    """Confusion matrix visualization for one or more models."""
-    models = _resolve_models(args, multi=True, default=DEFAULT_MODELS)
+    models = resolve_models(args)
+    logs = load_logs(models)
 
-    for model_name in models:
-        log_p = _log_path(model_name)
-        if not os.path.exists(log_p):
-            print(f'Skipping {model_name}: log not found')
-            continue
-        with open(log_p) as f:
-            data = json.load(f)
+    for model_name, data in logs.items():
         cm = data.get('test_metrics', {}).get('confusion_matrix', [])
-        if len(cm) == 0:
-            print(f'Skipping {model_name}: no confusion matrix')
+        if not cm:
+            print(f'Skipping {model_name}: no confusion matrix in log')
             continue
-        save_path = _build_fig_path(model_name, 'confusion')
-        plot_confusion_matrix(np.array(cm), model_name, save_path, normalize=True)
-        print(f'Confusion matrix for {model_name} saved.')
-    print('Done.')
-
-
-def run_compare(args):
-    """Compare multiple models side-by-side."""
-    models = _resolve_models(args, multi=True)
-    if not models:
-        return
-
-    all_logs = {}
-    for model_name in models:
-        log_p = _log_path(model_name)
-        if not os.path.exists(log_p):
-            print(f'Skipping {model_name}: log not found')
-            continue
-        with open(log_p) as f:
-            all_logs[model_name] = json.load(f)
-
-    if not all_logs:
-        print('No valid logs found.')
-        return
-
-    plot_comparison(all_logs, args.output, window=args.window)
-    print(f'Comparison plots saved to {args.output}*')
+        save_path = build_fig_path(model_name, 'confusion')
+        plot_confusion_matrix(np.array(cm), model_name, str(save_path), normalize=True)
+        print(f'Confusion matrix for {model_name} saved to {save_path}')
 
 
 def run_train(args):
-    """Plot training curves for a single model."""
-    model_name = _resolve_models(args, multi=False)
-    if model_name is None:
+    model_name = resolve_models(args)[0]
+    logs = load_logs([model_name])
+    if model_name not in logs:
         return
-
-    log_p = _log_path(model_name)
-    if not os.path.exists(log_p):
-        return _warn_missing(log_p)
-    with open(log_p) as f:
-        log_data = json.load(f)
-
-    save_path = _build_fig_path(model_name, 'training')
-    plot_training_curves(log_data, save_path, window=args.window)
+    save_path = build_fig_path(model_name, 'training')
+    plot_training_curves(logs[model_name], str(save_path), window=args.window)
     print(f'Training curves saved to {save_path}')
 
 
-def run_grad(args):
-    """Plot gradient norms for a single model."""
-    model_name = _resolve_models(args, multi=False)
-    if model_name is None:
-        return
-
-    log_p = _log_path(model_name)
-    if not os.path.exists(log_p):
-        return _warn_missing(log_p)
-    with open(log_p) as f:
-        log_data = json.load(f)
-
-    save_path = _build_fig_path(model_name, 'grad_norms')
-    plot_grad_norms(log_data, save_path, top_k=args.top_k, window=args.window)
-    print(f'Gradient norm plots saved to {save_path}')
-
-
-def run_table(args):
-    """Generate a LaTeX-formatted comparison table for one or more models."""
-    models = _resolve_models(args, multi=True)
-    if not models:
-        return
-
-    # Gather metrics from logs/eval
-    table_data = {}
-    for model_name in models:
-        json_p = f'{args.log_dir}/{model_name}.json'
-        if not os.path.exists(json_p):
-            print(f'Skipping {model_name}: not found')
-            continue
-        with open(json_p) as f:
-            log_data = json.load(f)
-        source_dict = log_data.get(args.source, {})
-        table_data[model_name] = {
-            metric: source_dict.get(metric, None)
-            for metric in args.metrics
-        }
-
-    if not table_data:
+def run_compare(args):
+    models = resolve_models(args)
+    logs = load_logs(models)
+    if not logs:
         print('No valid logs found.')
         return
-
-    # Check which models have all requested metrics
-    valid_models = {
-        m: d for m, d in table_data.items()
-        if all(v is not None for v in d.values())
-    }
-    missing = set(models) - set(valid_models.keys())
-    if missing:
-        print(f'WARNING: skipping models (missing metrics): {", ".join(sorted(missing))}')
-
-    if not valid_models:
-        print('No models with all requested metrics.')
-        return
-
-    # Determine best value per metric (higher is better for all common metrics)
-    best = {}
-    for metric in args.metrics:
-        values = [(m, d[metric]) for m, d in valid_models.items()]
-        best[metric] = max(values, key=lambda x: x[1])
-
-    # Build LaTeX table
-    n_cols = len(args.metrics)
-    col_spec = 'l' + 'c' * n_cols
-    header_metrics = ' & '.join(
-        _fmt_metric_name(m) for m in args.metrics
-    )
-    if args.title:
-        caption = args.title
-    else:
-        caption = (
-            f'Model comparison on {args.source.replace("_", " ")} '
-            f'({", ".join(_fmt_metric_name(m) for m in args.metrics)})'
-        )
-
-    lines = []
-    lines.append(r'\begin{table}[H]')
-    lines.append(r'  \centering')
-    lines.append(f'  \\caption{{{caption}}}')
-    lines.append(r'  \label{tab:model_comparison}')
-    lines.append(r'  \begin{tabular}{' + col_spec + '}')
-    lines.append(r'    \toprule')
-    lines.append(f'    Model & {header_metrics} \\\\')
-    lines.append(r'    \midrule')
-
-    for model_name in models:
-        if model_name not in valid_models:
-            continue
-        row_d = valid_models[model_name]
-        cells = []
-        for metric in args.metrics:
-            val = row_d[metric]
-            best_model, best_val = best[metric]
-            cell = f'{val:.4f}'
-            if model_name == best_model:
-                cell = f'\\textbf{{{cell}}}'
-            cells.append(cell)
-        tex_name = model_name.replace('_', r'\_')
-        lines.append(f'    {tex_name} & {" & ".join(cells)} \\\\')
-
-    lines.append(r'    \bottomrule')
-    lines.append(r'  \end{tabular}')
-    lines.append(r'\end{table}')
-
-    tex_content = '\n'.join(lines)
-
-    os.makedirs(f'{OUPUTS_DIR}/tables', exist_ok=True)
-    if args.table_output:
-        output_path = args.table_output
-    else:
-        output_path = f'{OUPUTS_DIR}/tables/comparison_{args.source}.tex'
-    with open(output_path, 'w') as f:
-        f.write(tex_content + '\n')
-    print(f'LaTeX table saved to {output_path}')
+    plot_comparison(logs, args.output, window=args.window)
+    print(f'Comparison plots saved to {args.output}*')
 
 
 def run_eval(args):
-    """Run inference on val+test using best model, save to outputs/eval/."""
-    models = _resolve_models(args, multi=True, default=DEFAULT_MODELS)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    os.makedirs(f'{OUPUTS_DIR}/eval', exist_ok=True)
+    models = resolve_models(args)
+    eval_dir = OUTPUTS_DIR / 'eval'
+    eval_dir.mkdir(parents=True, exist_ok=True)
 
     for model_name in models:
-        log_p = _log_path(model_name)
-        model_p = f'{OUPUTS_DIR}/models/{model_name}.pth'
-        eval_path = f'{OUPUTS_DIR}/eval/{model_name}.json'
-        if not os.path.exists(log_p) or not os.path.exists(model_p):
-            print(f'Skipping {model_name}: log or model not found')
+        current_log_path = log_path(model_name, args.log_dir)
+        if not current_log_path.exists():
+            print(f'Skipping {model_name}: log not found')
             continue
-        if os.path.exists(eval_path) and not args.force:
+
+        eval_path = eval_dir / f'{model_name}.json'
+        if eval_path.exists() and not args.force:
             print(f'Skipping {model_name}: eval results already exist')
             continue
 
-        model, log_data = load_model_from_log(log_p, device)
-        config = Config(**log_data['config'])
-        _, val_loader, test_loader, _ = create_dataloaders(config)
+        with current_log_path.open('r') as f:
+            log_data = json.load(f)
 
-        val_metrics = infer(model, val_loader, device)
-        test_metrics = infer(model, test_loader, device)
-
+        val_metrics = evaluate_experiment(model_name, split='val')
+        test_metrics = evaluate_experiment(model_name, split='test')
         print(f'{model_name}  Val Accuracy: {val_metrics["accuracy"]:.4f}  Test Accuracy: {test_metrics["accuracy"]:.4f}')
+
+        log_data['val_metrics'] = val_metrics
+        log_data['test_metrics'] = test_metrics
+        with current_log_path.open('w') as f:
+            json.dump(log_data, f, indent=2, default=lambda x: x.tolist() if hasattr(x, 'tolist') else str(x))
 
         eval_data = {
             'model': model_name,
@@ -351,91 +175,113 @@ def run_eval(args):
             'val_metrics': val_metrics,
             'test_metrics': test_metrics,
         }
-        with open(eval_path, 'w') as f:
-            json.dump(eval_data, f, indent=2,
-                      default=lambda x: x.tolist() if hasattr(x, 'tolist') else str(x))
+        with eval_path.open('w') as f:
+            json.dump(eval_data, f, indent=2, default=lambda x: x.tolist() if hasattr(x, 'tolist') else str(x))
 
-    print(f'Eval results saved to {OUPUTS_DIR}/eval/')
-
-
-def _fmt_metric_name(metric):
-    return metric.replace('_', ' ').title()
+    print(f'Eval results saved to {eval_dir}')
 
 
-# ======================
-#  Argument helpers
-# ======================
-
-def _resolve_models(args, multi=False, default=None):
-    """Return a list of model names from args, or a single name for single mode.
-
-    Args:
-        args:     argparse namespace.
-        multi:    if True, return a list (never None).
-        default:  fallback list when args.model is None and multi=True.
-    """
-    names = args.model
-
-    if multi:
-        if names is None and default is not None:
-            return default
-        if names is None:
-            print('Error: --model is required.')
-            return []
-        return names
-
-    # single-mode
-    if names is None:
-        print('Error: --model is required.')
-        return None
-    if len(names) > 1:
-        print(f'Warning: only one model expected, using first ("{names[0]}").')
-    return names[0]
+def build_experiment_table(args):
+    models = resolve_models(args)
+    rows = []
+    for model_name in models:
+        current_log_path = log_path(model_name, args.log_dir)
+        if not current_log_path.exists():
+            print(f'Skipping {model_name}: log not found')
+            continue
+        with current_log_path.open('r') as f:
+            log_data = json.load(f)
+        source_dict = log_data.get(args.source, {})
+        values = [source_dict.get(metric) for metric in args.metrics]
+        if any(value is None for value in values):
+            print(f'Skipping {model_name}: missing metrics in {args.source}')
+            continue
+        rows.append((model_name, values))
+    return rows
 
 
-def _warn_missing(log_p):
-    print(f'Log not found: {log_p}')
+def build_stage_summary_table(args):
+    if not args.stage:
+        raise ValueError('--stage is required for table-kind=stage-summary')
+    report_path = Path(args.report_dir) / f'{args.stage}_summary.json'
+    if not report_path.exists():
+        raise FileNotFoundError(f'Stage summary not found: {report_path}')
 
-    
-def _build_fig_path(model_name, suffix):
-    subdirs = {
-        'confusion': 'coonfusion',
-        'training': 'training',
-    }
-    subdir = subdirs.get(suffix)
-    if subdir is not None:
-        output_dir = f"{OUPUTS_DIR}/figures/{subdir}"
-        os.makedirs(output_dir, exist_ok=True)
-        return f"{output_dir}/{model_name}_{suffix}.png"
-    return f"{OUPUTS_DIR}/figures/{model_name}_{suffix}.png"
+    with report_path.open('r') as f:
+        report = json.load(f)
+
+    rows = []
+    for item in report.get('summary', []):
+        rows.append((
+            item['group'],
+            [
+                item['runs'],
+                f"{item['best_val_acc_mean']:.4f} $\\pm$ {item['best_val_acc_std']:.4f}",
+                f"{item['test_acc_mean']:.4f} $\\pm$ {item['test_acc_std']:.4f}",
+            ],
+        ))
+    return rows
 
 
-def _log_path(model_name):
-    return f"{OUPUTS_DIR}/logs/{model_name}.json"
+def render_latex_table(headers, rows, output_path, caption):
+    OUTPUTS_DIR.joinpath('tables').mkdir(parents=True, exist_ok=True)
+    col_spec = 'l' + 'c' * (len(headers) - 1)
+    lines = [
+        r'\begin{table}[H]',
+        r'  \centering',
+        f'  \\caption{{{caption}}}',
+        r'  \label{tab:experiment_summary}',
+        f'  \\begin{{tabular}}{{{col_spec}}}',
+        r'    \toprule',
+        f'    {" & ".join(headers)} \\\\',
+        r'    \midrule',
+    ]
+
+    for name, values in rows:
+        rendered_values = [value if isinstance(value, str) else f'{value:.4f}' for value in values]
+        escaped_name = name.replace('_', r'\_')
+        lines.append(f'    {escaped_name} & {" & ".join(rendered_values)} \\\\')
+
+    lines.extend([
+        r'    \bottomrule',
+        r'  \end{tabular}',
+        r'\end{table}',
+    ])
+
+    with open(output_path, 'w') as f:
+        f.write('\n'.join(lines) + '\n')
+    print(f'LaTeX table saved to {output_path}')
 
 
-# ======================
-#  Main dispatcher
-# ======================
+def run_table(args):
+    if args.table_kind == 'stage-summary':
+        rows = build_stage_summary_table(args)
+        headers = ['Group', 'Runs', 'Best Val Acc', 'Test Acc']
+        output_path = args.table_output or str(OUTPUTS_DIR / 'tables' / f'{args.stage}_summary.tex')
+        caption = args.title or f'{args.stage} summary'
+        render_latex_table(headers, rows, output_path, caption)
+        return
+
+    rows = build_experiment_table(args)
+    headers = ['Experiment'] + [metric.replace('_', ' ').title() for metric in args.metrics]
+    output_path = args.table_output or str(OUTPUTS_DIR / 'tables' / f'experiments_{args.source}.tex')
+    caption = args.title or f'Experiment comparison on {args.source.replace("_", " ")}'
+    render_latex_table(headers, rows, output_path, caption)
+
 
 DISPATCH = {
-    'pca':     run_pca,
-    'cm':      run_cm,
-    'train':   run_train,
+    'pca': run_pca,
+    'cm': run_cm,
+    'train': run_train,
     'compare': run_compare,
-    'grad':    run_grad,
-    'eval':    run_eval,
-    'table':   run_table,
+    'eval': run_eval,
+    'table': run_table,
 }
 
 
 def main(argv=None):
     args = parse_args(argv)
-    fn = DISPATCH.get(args.mode)
-    if fn is None:
-        print(f'Unknown mode: {args.mode}')
-        return
-    fn(args)
+    DISPATCH[args.mode](args)
 
 
 if __name__ == '__main__':

@@ -1,69 +1,81 @@
 #!/bin/bash
 set -e
 
-echo "============================================"
-echo "  STL-10 Image Classification Experiments"
-echo "============================================"
-echo ""
-
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$PROJECT_DIR"
+DEFAULT_STAGE="stage1"
+VALIDATION_DIR="STL10/val"
+PYTHON_BIN="${PYTHON_BIN:-python}"
 
-if [ ! -d "STL10/val" ]; then
-    echo "Splitting dataset (80/20 train/val)..."
-    python scripts/split.py
-else
-    echo "Validation set already exists, skipping split."
-fi
+print_usage() {
+  printf 'Usage: bash scripts/run.sh <stage1|stage2|stage3|stage4> [baseline_experiment]\n'
+}
 
-echo "Running all experiments..."
-mkdir -p outputs/models outputs/logs outputs/figures
+validate_stage() {
+  case "$1" in
+    stage1|stage2|stage3|stage4) ;;
+    *)
+      print_usage
+      exit 1
+      ;;
+  esac
+}
 
-AUGMENT_CONFIGS=(
-    "01_baseline"
-    "02_color_jitter"
-    "02_flip_h"
-    "02_random_crop"
-)
+ensure_validation_split() {
+  if [ -d "$VALIDATION_DIR" ]; then
+    return
+  fi
 
-NORM_CONFIGS=(
-    "01_baseline"
-    "02_flip_h"
-    "03_adamw"
-    "03_batchnorm"
-    "03_dropout"
-)
+  printf 'Validation split not found at %s\n' "$VALIDATION_DIR"
+  printf 'Create it first with: python utils/split.py\n'
+  exit 1
+}
 
-MODEL_CONFIGS=(
-    "01_baseline"
-    "03_adamw"
-    "04_avgpool"
-    "04_deep"
-    "04_sigmoid"
-)
+print_header() {
+  printf '============================================\n'
+  printf 'Running %s experiments\n' "$1"
+  if [ -n "$2" ]; then
+    printf 'Using baseline: %s\n' "$2"
+  fi
+  printf '============================================\n'
+}
 
-GROUPS=("AUGMENT" "NORM" "MODEL")
+main() {
+  local stage="${1:-$DEFAULT_STAGE}"
+  local baseline="${2:-}"
 
-for group in "${GROUPS[@]}"; do
-    declare -n configs="${group}_CONFIGS"
+  cd "$PROJECT_DIR"
 
-    for cfg in "${configs[@]}"; do
-        echo ""
-        echo "========================================"
-        echo "  Training: config_${cfg}"
-        echo "========================================"
-        python scripts/train.py --config "configs.config_${cfg}"
-        echo "  Finished: config_${cfg}"
-    done
+  validate_stage "$stage"
+  ensure_validation_split
+  print_header "$stage" "$baseline"
 
-    echo ""
-    echo "============================================"
-    echo "Running inference on ${group} group models..."
-    echo "============================================"
-    python scripts/infer.py --model "${configs[@]}" --output-dir "outputs/figures/${group}"
-done
+  export STAGE="$stage"
+  export BASELINE="$baseline"
+  export PYTHON_BIN
 
-echo ""
-echo "============================================"
-echo "  All experiments completed!"
-echo "============================================"
+  "$PYTHON_BIN" - <<'PY'
+import os
+import subprocess
+
+from configs.experiments import build_stage_experiments
+
+stage = os.environ['STAGE']
+baseline = os.environ['BASELINE'] or None
+python_bin = os.environ['PYTHON_BIN']
+
+experiments = build_stage_experiments(stage, baseline=baseline)
+if not experiments:
+    raise SystemExit(f'No experiments generated for {stage}')
+
+for config in experiments:
+    print('=' * 60)
+    print(f'Training: {config.name}')
+    print('=' * 60)
+    subprocess.run(
+        [python_bin, 'scripts/train.py', '--experiment', config.name],
+        check=True,
+    )
+PY
+}
+
+main "$@"
