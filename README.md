@@ -72,6 +72,19 @@ bash scripts/run.sh stage1
 bash scripts/run.sh stage2 s1_optsgd_lr1e-2_seed42
 ```
 
+baseline 使用规则：
+
+- 不传 baseline：默认自动读取前一阶段 `outputs/reports/<prev_stage>_summary.json` 的第一名实验作为基线
+- 传入 baseline：优先使用你指定的实验名作为基线
+- 为保证训练、评估、汇总口径一致，`run.sh` 和 `eval.sh` 最好使用同一个 baseline 参数
+
+例如：
+
+```bash
+bash scripts/run.sh stage4 s3_bn1_do0_wd1e-4_seed20260505
+bash scripts/eval.sh stage4 s3_bn1_do0_wd1e-4_seed20260505
+```
+
 训练单个实验：
 
 ```bash

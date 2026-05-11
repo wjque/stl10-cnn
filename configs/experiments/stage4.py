@@ -4,13 +4,8 @@ from configs.experiments.common import (
     config_from_baseline,
     resolve_baseline,
 )
-
-
-DEFAULT_BASELINE = 's3_bn0_do0_wd0_seed42'
-
-
 def build_experiments(baseline=None, seeds=DEFAULT_SEEDS):
-    base = resolve_baseline('stage4', baseline or DEFAULT_BASELINE)
+    base = resolve_baseline('stage4', baseline)
     variants = [
         {'depth': 'shallow', 'pooling': 'max'},
         {'depth': 'shallow', 'pooling': 'avg'},

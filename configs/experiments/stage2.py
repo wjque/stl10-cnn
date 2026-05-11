@@ -4,13 +4,8 @@ from configs.experiments.common import (
     config_from_baseline,
     resolve_baseline,
 )
-
-
-DEFAULT_BASELINE = 's1_optsgd_lr1e-2_seed42'
-
-
 def build_experiments(baseline=None, seeds=DEFAULT_SEEDS):
-    base = resolve_baseline('stage2', baseline or DEFAULT_BASELINE)
+    base = resolve_baseline('stage2', baseline)
     variants = [
         {'augmentations': [], 'tag': 'none'},
         {'augmentations': ['random_crop'], 'tag': 'crop'},

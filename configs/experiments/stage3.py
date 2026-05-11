@@ -4,13 +4,8 @@ from configs.experiments.common import (
     config_from_baseline,
     resolve_baseline,
 )
-
-
-DEFAULT_BASELINE = 's2_augnone_seed42'
-
-
 def build_experiments(baseline=None, seeds=DEFAULT_SEEDS):
-    base = resolve_baseline('stage3', baseline or DEFAULT_BASELINE)
+    base = resolve_baseline('stage3', baseline)
     experiments = []
     for seed in seeds:
         for use_bn in (False, True):

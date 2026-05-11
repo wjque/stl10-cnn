@@ -10,9 +10,11 @@ DEFAULT_SEEDS = (42, 20260505, 123)
 
 
 def resolve_baseline(stage_name, baseline=None):
-    # Baselines can come from the default base config, a Config object, or a saved log.
-    if baseline is None:
+    # Stage 1 starts from the base config; later stages default to the best result from the previous stage.
+    if baseline is None and stage_name == 'stage1':
         return get_base_config(name=f'{stage_name}_base')
+    if baseline is None:
+        return registry.load_stage_best_baseline(stage_name)
     if isinstance(baseline, Config):
         return baseline
     try:

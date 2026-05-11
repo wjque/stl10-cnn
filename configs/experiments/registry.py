@@ -7,6 +7,11 @@ from configs import Config
 
 # Stage modules that can be imported through the registry.
 AVAILABLE_STAGES = ('stage1', 'stage2', 'stage3', 'stage4')
+PREVIOUS_STAGE = {
+    'stage2': 'stage1',
+    'stage3': 'stage2',
+    'stage4': 'stage3',
+}
 
 
 def get_stage_module(stage):
@@ -59,3 +64,26 @@ def load_baseline_from_log(experiment_name, log_dir='outputs/logs'):
     config_dict = log_data['config']
     config_dict['name'] = experiment_name
     return Config(**config_dict)
+
+
+def load_stage_best_baseline(stage, report_dir='outputs/reports'):
+    previous_stage = PREVIOUS_STAGE.get(stage)
+    if previous_stage is None:
+        raise ValueError(f'Stage {stage} does not have a previous-stage baseline')
+
+    report_path = Path(report_dir) / f'{previous_stage}_summary.json'
+    if not report_path.exists():
+        raise FileNotFoundError(f'Previous stage summary not found: {report_path}')
+
+    with report_path.open('r') as f:
+        report_data = json.load(f)
+
+    summary = report_data.get('summary', [])
+    if not summary:
+        raise ValueError(f'No summary entries found in {report_path}')
+
+    best_experiments = summary[0].get('experiments', [])
+    if not best_experiments:
+        raise ValueError(f'No experiment names found for best group in {report_path}')
+
+    return load_baseline_from_log(best_experiments[0])

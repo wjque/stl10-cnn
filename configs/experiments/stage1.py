@@ -4,13 +4,8 @@ from configs.experiments.common import (
     config_from_baseline,
     resolve_baseline,
 )
-
-
-DEFAULT_BASELINE = None
-
-
 def build_experiments(baseline=None, seeds=DEFAULT_SEEDS):
-    base = resolve_baseline('stage1', baseline or DEFAULT_BASELINE)
+    base = resolve_baseline('stage1', baseline)
     variants = [
         {'optimizer_name': 'sgd', 'learning_rate': 1e-2},
         {'optimizer_name': 'sgd', 'learning_rate': 1e-3},

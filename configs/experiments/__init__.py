@@ -5,6 +5,7 @@ from configs.experiments.registry import (
     get_stage_module,
     list_stage_names,
     load_baseline_from_log,
+    load_stage_best_baseline,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     'get_stage_module',
     'list_stage_names',
     'load_baseline_from_log',
+    'load_stage_best_baseline',
 ]
