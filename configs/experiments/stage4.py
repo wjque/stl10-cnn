@@ -23,7 +23,6 @@ def build_experiments(baseline=None, seeds=DEFAULT_SEEDS):
                     name=name,
                     stage='stage4',
                     seed=seed,
-                    scheduler_name='none',
                     use_early_stopping=False,
                     notes='Stage 4 architecture sweep.',
                     **variant,

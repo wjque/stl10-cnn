@@ -21,7 +21,6 @@ def build_experiments(baseline=None, seeds=DEFAULT_SEEDS):
                             use_bn=use_bn,
                             dropout=dropout,
                             weight_decay=weight_decay,
-                            scheduler_name='none',
                             use_early_stopping=False,
                             notes='Stage 3 regularization full-factorial sweep.',
                         )

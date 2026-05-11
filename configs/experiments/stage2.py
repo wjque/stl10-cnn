@@ -27,7 +27,6 @@ def build_experiments(baseline=None, seeds=DEFAULT_SEEDS):
                     use_bn=False,
                     dropout=0.0,
                     weight_decay=0.0,
-                    scheduler_name='none',
                     use_early_stopping=False,
                     notes='Stage 2 augmentation sweep.',
                 )
