@@ -264,6 +264,122 @@ def plot_comparison(all_logs, save_dir, window=3):
         _save_fig(fig4, paths['test_acc'])
 
 
+# ===============================
+#  Aggregated comparison (mean ± envelope across seeds)
+# ===============================
+
+def _make_aggregation_group_key(config, stage):
+    fields_by_stage = {
+        'stage1': ['optimizer_name', 'learning_rate'],
+        'stage2': ['augmentations'],
+        'stage3': ['use_bn', 'dropout', 'weight_decay'],
+        'stage4': ['depth', 'pooling'],
+    }
+    fields = fields_by_stage.get(stage, [])
+    values = []
+    for field in fields:
+        value = config.get(field)
+        if isinstance(value, list):
+            value = tuple(value)
+        values.append((field, value))
+    return tuple(values)
+
+
+def _group_key_to_label(group_key):
+    parts = []
+    for field, value in group_key:
+        if isinstance(value, tuple):
+            value = 'none' if not value else '+'.join(value)
+        parts.append(f'{field}={value}')
+    return ', '.join(parts)
+
+
+def _plot_aggregated_metric(ax, logs, key, color, label, window=3):
+    curves = []
+    for log in logs:
+        if key not in log:
+            continue
+        curves.append(np.asarray(log[key], dtype=float))
+
+    if not curves:
+        return
+
+    min_len = min(len(c) for c in curves)
+    curves = [c[:min_len] for c in curves]
+    epochs = np.arange(1, min_len + 1)
+
+    stacked = np.stack(curves, axis=0)
+    mean_vals = stacked.mean(axis=0)
+    min_vals = stacked.min(axis=0)
+    max_vals = stacked.max(axis=0)
+
+    mean_smoothed = moving_average(mean_vals, window)
+    min_smoothed = moving_average(min_vals, window)
+    max_smoothed = moving_average(max_vals, window)
+
+    ax.plot(epochs, mean_smoothed, color=color, lw=COLORS['line_lw'], label=label)
+    ax.fill_between(epochs, min_smoothed, max_smoothed, color=color, alpha=0.15)
+
+
+def plot_aggregated_comparison(all_logs, save_dir, window=3):
+    os.makedirs(save_dir, exist_ok=True)
+
+    entries = []
+    for name, log_data in all_logs.items():
+        config = log_data.get('config', {})
+        stage = log_data.get('stage', config.get('stage', ''))
+        group_key = _make_aggregation_group_key(config, stage)
+        entries.append((name, log_data, group_key))
+
+    groups = {}
+    group_order = []
+    for name, log_data, group_key in entries:
+        if group_key not in groups:
+            groups[group_key] = []
+            group_order.append(group_key)
+        groups[group_key].append(log_data)
+
+    n_groups = len(groups)
+    colors = _get_color_palette(n_groups)
+
+    with plt.style.context(STYLE_CONTEXT):
+        fig1, ax1 = plt.subplots(figsize=(12, 6))
+        for group_key, color in zip(group_order, colors):
+            logs = groups[group_key]
+            label = _group_key_to_label(group_key)
+            _plot_aggregated_metric(ax1, logs, 'train_loss', color, label, window)
+        _style_ax(ax1, 'Epoch', 'Training Loss', 'Training Loss by Configuration')
+        _add_legend(ax1, 'upper right', fontsize=9)
+        _save_fig(fig1, os.path.join(save_dir, 'aggregated_train_loss.png'))
+
+        fig2, ax2 = plt.subplots(figsize=(12, 6))
+        for group_key, color in zip(group_order, colors):
+            logs = groups[group_key]
+            label = _group_key_to_label(group_key)
+            _plot_aggregated_metric(ax2, logs, 'train_acc', color, label, window)
+        _style_ax(ax2, 'Epoch', 'Training Accuracy', 'Training Accuracy by Configuration')
+        _add_legend(ax2, 'lower right', fontsize=9)
+        _save_fig(fig2, os.path.join(save_dir, 'aggregated_train_acc.png'))
+
+        fig3, ax3 = plt.subplots(figsize=(12, 6))
+        for group_key, color in zip(group_order, colors):
+            logs = groups[group_key]
+            label = _group_key_to_label(group_key)
+            _plot_aggregated_metric(ax3, logs, 'val_loss', color, label, window)
+        _style_ax(ax3, 'Epoch', 'Validation Loss', 'Validation Loss by Configuration')
+        _add_legend(ax3, 'upper right', fontsize=9)
+        _save_fig(fig3, os.path.join(save_dir, 'aggregated_val_loss.png'))
+
+        fig4, ax4 = plt.subplots(figsize=(12, 6))
+        for group_key, color in zip(group_order, colors):
+            logs = groups[group_key]
+            label = _group_key_to_label(group_key)
+            _plot_aggregated_metric(ax4, logs, 'val_acc', color, label, window)
+        _style_ax(ax4, 'Epoch', 'Validation Accuracy', 'Validation Accuracy by Configuration')
+        _add_legend(ax4, 'lower right', fontsize=9)
+        _save_fig(fig4, os.path.join(save_dir, 'aggregated_val_acc.png'))
+
+
 # ========================
 #  Confusion matrix
 # ========================
@@ -419,7 +535,7 @@ def _save_pca_sample(model_name, dataset, idx, cls_name, model, device, save_dir
     # Assemble 2-row combined strip
     col_count = n_stages + 1
     gap = 4
-    total_w = 96 * col_count + gap * col_count
+    total_w = 96 * col_count + gap * (col_count - 1)
     total_h = 96 * 2 + gap
     combined = Image.new('RGB', (total_w, total_h))
 

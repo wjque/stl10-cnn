@@ -49,16 +49,34 @@ def key_to_name(group_key):
 
 def summarize_group(entries):
     val_scores = np.array([entry['best_val_acc'] for entry in entries], dtype=float)
-    test_scores = np.array([
+    test_acc = np.array([
         entry.get('test_metrics', {}).get('accuracy', np.nan)
+        for entry in entries
+    ], dtype=float)
+    test_precision = np.array([
+        entry.get('test_metrics', {}).get('precision_macro', np.nan)
+        for entry in entries
+    ], dtype=float)
+    test_f1 = np.array([
+        entry.get('test_metrics', {}).get('f1_macro', np.nan)
+        for entry in entries
+    ], dtype=float)
+    test_auc = np.array([
+        entry.get('test_metrics', {}).get('auc_ovr', np.nan)
         for entry in entries
     ], dtype=float)
     return {
         'runs': len(entries),
         'best_val_acc_mean': float(np.nanmean(val_scores)),
         'best_val_acc_std': float(np.nanstd(val_scores)),
-        'test_acc_mean': float(np.nanmean(test_scores)),
-        'test_acc_std': float(np.nanstd(test_scores)),
+        'test_acc_mean': float(np.nanmean(test_acc)),
+        'test_acc_std': float(np.nanstd(test_acc)),
+        'test_precision_mean': float(np.nanmean(test_precision)),
+        'test_precision_std': float(np.nanstd(test_precision)),
+        'test_f1_mean': float(np.nanmean(test_f1)),
+        'test_f1_std': float(np.nanstd(test_f1)),
+        'test_auc_mean': float(np.nanmean(test_auc)),
+        'test_auc_std': float(np.nanstd(test_auc)),
         'experiments': [entry['name'] for entry in entries],
     }
 
@@ -115,7 +133,10 @@ def main():
         print(
             f"{item['group']}: "
             f"val={item['best_val_acc_mean']:.4f}±{item['best_val_acc_std']:.4f}, "
-            f"test={item['test_acc_mean']:.4f}±{item['test_acc_std']:.4f}"
+            f"test_acc={item['test_acc_mean']:.4f}±{item['test_acc_std']:.4f}, "
+            f"test_precision={item['test_precision_mean']:.4f}±{item['test_precision_std']:.4f}, "
+            f"test_f1={item['test_f1_mean']:.4f}±{item['test_f1_std']:.4f}, "
+            f"test_auc={item['test_auc_mean']:.4f}±{item['test_auc_std']:.4f}"
         )
     if missing:
         print('Missing logs:')

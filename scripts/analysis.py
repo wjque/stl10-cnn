@@ -15,6 +15,7 @@ from scripts.infer import evaluate_experiment, load_model_from_log
 from utils.dataloader import create_dataloaders
 from utils.visualization import (
     generate_pca_visualization,
+    plot_aggregated_comparison,
     plot_comparison,
     plot_confusion_matrix,
     plot_training_curves,
@@ -28,7 +29,7 @@ DEFAULT_EXPERIMENT = 's1_optsgd_lr1e-2_seed42'
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description='Analysis utilities for the staged experiment pipeline.')
-    parser.add_argument('mode', choices=['pca', 'cm', 'train', 'compare', 'eval', 'table', 'tsne'])
+    parser.add_argument('mode', choices=['pca', 'cm', 'train', 'compare', 'eval', 'table', 'tsne', 'aggregate'])
     parser.add_argument('--model', nargs='+', help='Experiment name(s).')
     parser.add_argument('--stage', choices=['stage1', 'stage2', 'stage3', 'stage4'])
     
@@ -171,6 +172,18 @@ def run_compare(args):
     plot_comparison(logs, str(save_dir), window=args.window)
     print(f'Comparison plots saved to {save_dir}')
 
+
+def run_aggregate(args):
+    models = resolve_models(args)
+    logs = load_logs(models)
+    if not logs:
+        print('No valid logs found.')
+        return
+    stage_name = args.stage or next((log.get('stage') for log in logs.values() if log.get('stage')), 'comparison')
+    save_dir = build_mode_dir('comparison', stage_name)
+    plot_aggregated_comparison(logs, str(save_dir), window=args.window)
+    print(f'Aggregated comparison plots saved to {save_dir}')
+
 #==================================
 #  Evaluation on val and test set
 #==================================
@@ -255,19 +268,25 @@ def build_stage_summary_table(args):
                 item['runs'],
                 f"{item['best_val_acc_mean']:.4f} $\\pm$ {item['best_val_acc_std']:.4f}",
                 f"{item['test_acc_mean']:.4f} $\\pm$ {item['test_acc_std']:.4f}",
+                f"{item['test_precision_mean']:.4f} $\\pm$ {item['test_precision_std']:.4f}",
+                f"{item['test_f1_mean']:.4f} $\\pm$ {item['test_f1_std']:.4f}",
+                f"{item['test_auc_mean']:.4f} $\\pm$ {item['test_auc_std']:.4f}",
             ],
         ))
     return rows
 
 
-def render_latex_table(headers, rows, output_path, caption):
+def render_latex_table(headers, rows, output_path, caption, label='tab:experiment_summary'):
     OUTPUTS_DIR.joinpath('tables').mkdir(parents=True, exist_ok=True)
     col_spec = 'l' + 'c' * (len(headers) - 1)
     lines = [
         r'\begin{table}[H]',
         r'  \centering',
         f'  \\caption{{{caption}}}',
-        r'  \label{tab:experiment_summary}',
+        f'  \\label{{{label}}}',
+        r'  \small',
+        r'  \setlength{\tabcolsep}{5pt}',
+        r'  \resizebox{\textwidth}{!}{%',
         f'  \\begin{{tabular}}{{{col_spec}}}',
         r'    \toprule',
         f'    {" & ".join(headers)} \\\\',
@@ -281,7 +300,8 @@ def render_latex_table(headers, rows, output_path, caption):
 
     lines.extend([
         r'    \bottomrule',
-        r'  \end{tabular}',
+        r'  \end{tabular}%',
+        r'  }',
         r'\end{table}',
     ])
 
@@ -293,10 +313,11 @@ def render_latex_table(headers, rows, output_path, caption):
 def run_table(args):
     if args.table_kind == 'stage-summary':
         rows = build_stage_summary_table(args)
-        headers = ['Group', 'Runs', 'Best Val Acc', 'Test Acc']
+        headers = ['Group', 'Runs', 'Val Acc', 'Test Acc', 'Precision', 'F1', 'AUC']
         output_path = args.table_output or str(OUTPUTS_DIR / 'tables' / f'{args.stage}_summary.tex')
         caption = args.title or f'{args.stage} summary'
-        render_latex_table(headers, rows, output_path, caption)
+        label = f'tab:{args.stage}' if args.stage else 'tab:experiment_summary'
+        render_latex_table(headers, rows, output_path, caption, label)
         return
 
     rows = build_experiment_table(args)
@@ -314,6 +335,7 @@ DISPATCH = {
     'cm': run_cm,
     'train': run_train,
     'compare': run_compare,
+    'aggregate': run_aggregate,
     'eval': run_eval,
     'table': run_table,
     'tsne': run_tsne,
